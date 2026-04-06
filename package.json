@@ -1,0 +1,48 @@
+{
+  "name": "@runcrate/sdk",
+  "version": "0.1.0",
+  "description": "Official Runcrate TypeScript SDK — manage GPU instances, crates, and run model inference",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint src/",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.2",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/aeonmindai/runcrate",
+    "directory": "packages/sdk-ts"
+  },
+  "keywords": [
+    "runcrate",
+    "gpu",
+    "ai",
+    "inference",
+    "sdk"
+  ]
+}

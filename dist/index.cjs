@@ -1,0 +1,824 @@
+'use strict';
+
+Object.defineProperty(exports, '__esModule', { value: true });
+
+var promises = require('fs/promises');
+
+// src/errors.ts
+var RuncrateError = class extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "RuncrateError";
+  }
+};
+var ApiError = class extends RuncrateError {
+  statusCode;
+  code;
+  details;
+  constructor(message, statusCode, code, details) {
+    super(message);
+    this.name = "ApiError";
+    this.statusCode = statusCode;
+    this.code = code;
+    this.details = details;
+  }
+};
+var BadRequestError = class extends ApiError {
+  constructor(message, code, details) {
+    super(message, 400, code, details);
+    this.name = "BadRequestError";
+  }
+};
+var AuthenticationError = class extends ApiError {
+  constructor(message, code, details) {
+    super(message, 401, code, details);
+    this.name = "AuthenticationError";
+  }
+};
+var InsufficientCreditsError = class extends ApiError {
+  constructor(message, code, details) {
+    super(message, 402, code, details);
+    this.name = "InsufficientCreditsError";
+  }
+};
+var PermissionDeniedError = class extends ApiError {
+  constructor(message, code, details) {
+    super(message, 403, code, details);
+    this.name = "PermissionDeniedError";
+  }
+};
+var NotFoundError = class extends ApiError {
+  constructor(message, code, details) {
+    super(message, 404, code, details);
+    this.name = "NotFoundError";
+  }
+};
+var ConflictError = class extends ApiError {
+  constructor(message, code, details) {
+    super(message, 409, code, details);
+    this.name = "ConflictError";
+  }
+};
+var RateLimitError = class extends ApiError {
+  constructor(message, code, details) {
+    super(message, 429, code, details);
+    this.name = "RateLimitError";
+  }
+};
+var InternalServerError = class extends ApiError {
+  constructor(message, code, details) {
+    super(message, 500, code, details);
+    this.name = "InternalServerError";
+  }
+};
+var ConnectionError = class extends RuncrateError {
+  constructor(message) {
+    super(message);
+    this.name = "ConnectionError";
+  }
+};
+var TimeoutError = class extends RuncrateError {
+  constructor(message) {
+    super(message);
+    this.name = "TimeoutError";
+  }
+};
+var STATUS_MAP = {
+  400: BadRequestError,
+  401: AuthenticationError,
+  402: InsufficientCreditsError,
+  403: PermissionDeniedError,
+  404: NotFoundError,
+  409: ConflictError,
+  429: RateLimitError,
+  500: InternalServerError
+};
+function makeApiError(statusCode, body, fallbackMessage) {
+  let code = "unknown";
+  let message = fallbackMessage;
+  let details;
+  if (body && typeof body === "object" && "error" in body) {
+    const err = body.error;
+    if (err && typeof err === "object") {
+      const e = err;
+      code = e.code ?? "unknown";
+      message = e.message ?? fallbackMessage;
+      details = e.details;
+    }
+  }
+  const Cls = STATUS_MAP[statusCode];
+  if (!Cls) {
+    return new ApiError(message, statusCode, code, details);
+  }
+  return new Cls(message, code, details);
+}
+
+// src/transport.ts
+var RETRYABLE_STATUS_CODES = /* @__PURE__ */ new Set([429, 500, 502, 503, 504]);
+var BASE_DELAY = 500;
+var MAX_DELAY = 3e4;
+var JITTER_FACTOR = 0.25;
+function backoffDelay(attempt, retryAfter) {
+  if (retryAfter !== void 0) return retryAfter * 1e3;
+  const delay = Math.min(BASE_DELAY * 2 ** attempt, MAX_DELAY);
+  const jitter = delay * JITTER_FACTOR * Math.random();
+  return delay + jitter;
+}
+function parseRetryAfter(headers) {
+  const value = headers.get("retry-after");
+  if (!value) return void 0;
+  const parsed = parseFloat(value);
+  return isNaN(parsed) ? void 0 : parsed;
+}
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+function buildUrl(baseUrl, path, params) {
+  const url = new URL(path, baseUrl);
+  if (params) {
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== void 0 && value !== null) {
+        url.searchParams.set(key, String(value));
+      }
+    }
+  }
+  return url.toString();
+}
+var Transport = class {
+  config;
+  headers;
+  constructor(config) {
+    this.config = config;
+    this.headers = {
+      Authorization: `Bearer ${config.apiKey}`,
+      "Content-Type": "application/json",
+      "User-Agent": "runcrate-ts/0.1.0",
+      ...config.customHeaders
+    };
+  }
+  async request(options) {
+    const { method, path, params, body, timeout, raw } = options;
+    const url = buildUrl(this.config.baseUrl, path, params);
+    let lastError;
+    for (let attempt = 0; attempt <= this.config.maxRetries; attempt++) {
+      let response;
+      try {
+        const controller = new AbortController();
+        const timeoutMs = (timeout ?? this.config.timeout) * 1e3;
+        const timer = setTimeout(() => controller.abort(), timeoutMs);
+        response = await fetch(url, {
+          method,
+          headers: this.headers,
+          body: body ? JSON.stringify(body) : void 0,
+          signal: controller.signal
+        });
+        clearTimeout(timer);
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") {
+          lastError = new TimeoutError(`Request timed out: ${method} ${path}`);
+        } else {
+          lastError = new ConnectionError(
+            `Connection failed: ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+        if (attempt < this.config.maxRetries) {
+          await sleep(backoffDelay(attempt));
+          continue;
+        }
+        throw lastError;
+      }
+      if (RETRYABLE_STATUS_CODES.has(response.status) && attempt < this.config.maxRetries) {
+        const retryAfter = parseRetryAfter(response.headers);
+        await sleep(backoffDelay(attempt, retryAfter));
+        continue;
+      }
+      if (response.status === 204) {
+        return { data: void 0 };
+      }
+      if (raw) {
+        const buffer = await response.arrayBuffer();
+        if (response.status >= 400) {
+          throw makeApiError(response.status, null, `HTTP ${response.status}`);
+        }
+        return { data: buffer };
+      }
+      const contentType = response.headers.get("content-type") ?? "";
+      if (!contentType.includes("application/json")) {
+        const text = await response.text();
+        if (response.status >= 400) {
+          throw makeApiError(response.status, null, text.slice(0, 200));
+        }
+        throw new ApiError(
+          `Expected JSON response but got ${contentType} (status ${response.status}). Check that baseUrl is correct.`,
+          response.status,
+          "invalid_response"
+        );
+      }
+      const json = await response.json();
+      if (response.status >= 400) {
+        throw makeApiError(
+          response.status,
+          json,
+          `HTTP ${response.status}`
+        );
+      }
+      const data = options.noUnwrap ? json : json.data ?? json;
+      const meta = options.noUnwrap ? void 0 : json.meta;
+      return { data, meta };
+    }
+    throw lastError ?? new Error("Unexpected retry exhaustion");
+  }
+  async streamRequest(options) {
+    const { method, path, params, body, timeout } = options;
+    const url = buildUrl(this.config.baseUrl, path, params);
+    const controller = new AbortController();
+    const timeoutMs = (timeout ?? this.config.timeout) * 1e3;
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let response;
+    try {
+      response = await fetch(url, {
+        method,
+        headers: this.headers,
+        body: body ? JSON.stringify(body) : void 0,
+        signal: controller.signal
+      });
+    } catch (err) {
+      clearTimeout(timer);
+      if (err instanceof DOMException && err.name === "AbortError") {
+        throw new TimeoutError(`Request timed out: ${method} ${path}`);
+      }
+      throw new ConnectionError(
+        `Connection failed: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+    clearTimeout(timer);
+    if (response.status >= 400) {
+      const json = await response.json().catch(() => null);
+      throw makeApiError(
+        response.status,
+        json,
+        `HTTP ${response.status}`
+      );
+    }
+    return response;
+  }
+};
+
+// src/util.ts
+function removeUndefined(obj) {
+  const result = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== void 0) {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+function camelToSnake(str) {
+  return str.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+}
+function toSnakeCase(obj) {
+  const result = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== void 0) {
+      result[camelToSnake(key)] = value;
+    }
+  }
+  return result;
+}
+
+// src/resources/instances.ts
+var Instances = class {
+  constructor(transport) {
+    this.transport = transport;
+  }
+  transport;
+  async list(params) {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: "/api/v1/instances",
+      params: params ? removeUndefined(params) : void 0
+    });
+    return data;
+  }
+  async create(params) {
+    const { data } = await this.transport.request({
+      method: "POST",
+      path: "/api/v1/instances",
+      body: toSnakeCase(params)
+    });
+    return data;
+  }
+  async get(id) {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: `/api/v1/instances/${id}`
+    });
+    return data;
+  }
+  async terminate(id) {
+    await this.transport.request({
+      method: "DELETE",
+      path: `/api/v1/instances/${id}`
+    });
+  }
+  async getStatus(id) {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: `/api/v1/instances/${id}/status`
+    });
+    return data;
+  }
+  async listTypes(params) {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: "/api/v1/instances/types",
+      params: params ? removeUndefined(params) : void 0
+    });
+    return data;
+  }
+};
+
+// src/resources/crates.ts
+var Crates = class {
+  constructor(transport) {
+    this.transport = transport;
+  }
+  transport;
+  async list(params) {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: "/api/v1/crates",
+      params: params ? removeUndefined(params) : void 0
+    });
+    return data;
+  }
+  async create(params) {
+    const { data } = await this.transport.request({
+      method: "POST",
+      path: "/api/v1/crates",
+      body: toSnakeCase(params)
+    });
+    return data;
+  }
+  async get(id) {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: `/api/v1/crates/${id}`
+    });
+    return data;
+  }
+  async terminate(id) {
+    await this.transport.request({
+      method: "DELETE",
+      path: `/api/v1/crates/${id}`
+    });
+  }
+};
+
+// src/resources/projects.ts
+var Projects = class {
+  constructor(transport) {
+    this.transport = transport;
+  }
+  transport;
+  async list() {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: "/api/v1/projects"
+    });
+    return data;
+  }
+  async create(params) {
+    const { data } = await this.transport.request({
+      method: "POST",
+      path: "/api/v1/projects",
+      body: toSnakeCase(params)
+    });
+    return data;
+  }
+  async get(id) {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: `/api/v1/projects/${id}`
+    });
+    return data;
+  }
+  async update(id, params) {
+    const { data } = await this.transport.request({
+      method: "PATCH",
+      path: `/api/v1/projects/${id}`,
+      body: toSnakeCase(params)
+    });
+    return data;
+  }
+  async delete(id) {
+    await this.transport.request({
+      method: "DELETE",
+      path: `/api/v1/projects/${id}`
+    });
+  }
+};
+
+// src/resources/ssh-keys.ts
+var SSHKeys = class {
+  constructor(transport) {
+    this.transport = transport;
+  }
+  transport;
+  async list() {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: "/api/v1/ssh-keys"
+    });
+    return data;
+  }
+  async create(params) {
+    const { data } = await this.transport.request({
+      method: "POST",
+      path: "/api/v1/ssh-keys",
+      body: toSnakeCase(params)
+    });
+    return data;
+  }
+  async delete(id) {
+    await this.transport.request({
+      method: "DELETE",
+      path: `/api/v1/ssh-keys/${id}`
+    });
+  }
+};
+
+// src/resources/storage.ts
+var Storage = class {
+  constructor(transport) {
+    this.transport = transport;
+  }
+  transport;
+  async list(params) {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: "/api/v1/storage",
+      params: params ? removeUndefined(params) : void 0
+    });
+    return data;
+  }
+  async get(id) {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: `/api/v1/storage/${id}`
+    });
+    return data;
+  }
+};
+
+// src/pagination.ts
+var PaginatedResponse = class {
+  data;
+  meta;
+  constructor(data, meta) {
+    this.data = data;
+    this.meta = meta ?? {};
+  }
+  get hasMore() {
+    return this.meta.hasMore ?? false;
+  }
+  get cursor() {
+    return this.meta.cursor;
+  }
+  get total() {
+    return this.meta.total;
+  }
+  [Symbol.iterator]() {
+    return this.data[Symbol.iterator]();
+  }
+  get length() {
+    return this.data.length;
+  }
+};
+
+// src/resources/billing.ts
+var Billing = class {
+  constructor(transport) {
+    this.transport = transport;
+  }
+  transport;
+  async getBalance() {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: "/api/v1/billing/balance"
+    });
+    return data;
+  }
+  async listTransactions(params) {
+    const queryParams = {
+      limit: params?.limit ?? 50,
+      offset: params?.offset ?? 0,
+      type: params?.type
+    };
+    const { data, meta } = await this.transport.request({
+      method: "GET",
+      path: "/api/v1/billing/transactions",
+      params: removeUndefined(queryParams)
+    });
+    return new PaginatedResponse(data, meta);
+  }
+  async usage(params) {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: "/api/v1/billing/usage",
+      params: params ? removeUndefined(params) : void 0
+    });
+    return data;
+  }
+};
+
+// src/resources/templates.ts
+var Templates = class {
+  constructor(transport) {
+    this.transport = transport;
+  }
+  transport;
+  async list(params) {
+    const queryParams = {
+      page: params?.page ?? 1,
+      page_size: params?.pageSize ?? 25,
+      search: params?.search,
+      category: params?.category,
+      sort_by: params?.sortBy,
+      sort_dir: params?.sortDir
+    };
+    const { data, meta } = await this.transport.request({
+      method: "GET",
+      path: "/api/v1/templates",
+      params: removeUndefined(queryParams)
+    });
+    return new PaginatedResponse(data, meta);
+  }
+};
+
+// src/streaming.ts
+async function* parseSSEStream(response) {
+  const reader = response.body?.getReader();
+  if (!reader) {
+    throw new Error("Response body is not readable");
+  }
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith("data: ")) continue;
+        const data = trimmed.slice(6);
+        if (data === "[DONE]") return;
+        yield JSON.parse(data);
+      }
+    }
+    if (buffer.trim().startsWith("data: ")) {
+      const data = buffer.trim().slice(6);
+      if (data !== "[DONE]") {
+        yield JSON.parse(data);
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+// src/resources/models.ts
+function decodeImageBytes(imgData) {
+  if (imgData.b64Json) {
+    return Buffer.from(imgData.b64Json, "base64");
+  }
+  if (imgData.url?.startsWith("data:")) {
+    const raw = imgData.url.split(",")[1];
+    if (raw) return Buffer.from(raw, "base64");
+  }
+  return null;
+}
+var Models = class {
+  constructor(transport, inferenceUrl, apiKey) {
+    this.transport = transport;
+    this.inferenceUrl = inferenceUrl;
+    this.apiKey = apiKey;
+  }
+  transport;
+  inferenceUrl;
+  apiKey;
+  async chatCompletion(params) {
+    const body = removeUndefined(params);
+    if (params.stream) {
+      const response = await this.transport.streamRequest({
+        method: "POST",
+        path: "/v1/chat/completions",
+        body,
+        timeout: 120
+      });
+      return parseSSEStream(response);
+    }
+    const { data } = await this.transport.request({
+      method: "POST",
+      path: "/v1/chat/completions",
+      body,
+      noUnwrap: true
+    });
+    return data;
+  }
+  async generateImage(params) {
+    const { data } = await this.transport.request({
+      method: "POST",
+      path: "/v1/images/generations",
+      body: removeUndefined(params),
+      timeout: 120,
+      noUnwrap: true
+    });
+    const result = data;
+    result.save = async (path) => {
+      const imgData = result.data[0];
+      if (!imgData) throw new Error("No image data in response");
+      const bytes = decodeImageBytes(imgData);
+      if (bytes) {
+        await promises.writeFile(path, bytes);
+        return;
+      }
+      if (imgData.url) {
+        const resp = await fetch(imgData.url);
+        await promises.writeFile(path, Buffer.from(await resp.arrayBuffer()));
+        return;
+      }
+      throw new Error("No image data available to save");
+    };
+    return result;
+  }
+  async generateVideo(params) {
+    const { data } = await this.transport.request({
+      method: "POST",
+      path: "/v1/videos",
+      body: removeUndefined(params),
+      timeout: 120,
+      noUnwrap: true
+    });
+    return data;
+  }
+  async getVideoStatus(id) {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: `/v1/videos/${id}`,
+      noUnwrap: true
+    });
+    return data;
+  }
+  async downloadVideo(id) {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: `/v1/videos/${id}/download`,
+      timeout: 120,
+      raw: true
+    });
+    return Buffer.from(data);
+  }
+  async generateVideoAndSave(path, params) {
+    const { pollInterval = 5e3, onStatus, ...genParams } = params;
+    let job = await this.generateVideo(genParams);
+    while (job.status !== "completed" && job.status !== "failed") {
+      await new Promise((r) => setTimeout(r, pollInterval));
+      job = await this.getVideoStatus(job.id);
+      onStatus?.(job);
+    }
+    if (job.status === "failed") {
+      throw new Error(`Video generation failed (job ${job.id})`);
+    }
+    const videoBytes = await this.downloadVideo(job.id);
+    await promises.writeFile(path, videoBytes);
+    return job;
+  }
+  async textToSpeech(params) {
+    const { data } = await this.transport.request({
+      method: "POST",
+      path: "/v1/audio/speech",
+      body: removeUndefined(params),
+      timeout: 120,
+      raw: true
+    });
+    return Buffer.from(data);
+  }
+  async textToSpeechAndSave(path, params) {
+    const audio = await this.textToSpeech(params);
+    await promises.writeFile(path, audio);
+  }
+  async transcribe(params) {
+    const { model, file, filename = "audio.wav" } = params;
+    const formData = new FormData();
+    formData.append("model", model);
+    if (file instanceof Blob) {
+      formData.append("file", file, filename);
+    } else {
+      formData.append("file", new Blob([file]), filename);
+    }
+    const response = await fetch(
+      `${this.inferenceUrl}/v1/audio/transcriptions`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "User-Agent": "runcrate-ts/0.1.0"
+        },
+        body: formData
+      }
+    );
+    if (response.status >= 400) {
+      const json = await response.json().catch(() => null);
+      throw makeApiError(response.status, json, `HTTP ${response.status}`);
+    }
+    return await response.json();
+  }
+};
+
+// src/client.ts
+var DEFAULT_BASE_URL = "https://runcrate.com";
+var DEFAULT_INFERENCE_URL = "https://api.runcrate.ai";
+var DEFAULT_TIMEOUT = 30;
+var DEFAULT_MAX_RETRIES = 3;
+function resolveApiKey(config) {
+  const key = config?.apiKey ?? process.env.RUNCRATE_API_KEY;
+  if (!key) {
+    throw new Error(
+      "API key is required. Pass it as `apiKey` or set the RUNCRATE_API_KEY environment variable."
+    );
+  }
+  if (!key.startsWith("rc_live_")) {
+    throw new Error(
+      'Invalid API key format. Keys must start with "rc_live_".'
+    );
+  }
+  return key;
+}
+function trimTrailingSlash(url) {
+  return url.replace(/\/+$/, "");
+}
+var Runcrate = class {
+  instances;
+  crates;
+  projects;
+  sshKeys;
+  storage;
+  billing;
+  templates;
+  models;
+  constructor(config) {
+    const apiKey = resolveApiKey(config);
+    const baseUrl = trimTrailingSlash(config?.baseUrl ?? DEFAULT_BASE_URL);
+    const inferenceUrl = trimTrailingSlash(
+      config?.inferenceUrl ?? DEFAULT_INFERENCE_URL
+    );
+    const timeout = config?.timeout ?? DEFAULT_TIMEOUT;
+    const maxRetries = config?.maxRetries ?? DEFAULT_MAX_RETRIES;
+    const customHeaders = config?.customHeaders ?? {};
+    const infraTransport = new Transport({
+      baseUrl,
+      apiKey,
+      timeout,
+      maxRetries,
+      customHeaders
+    });
+    const inferenceTransport = new Transport({
+      baseUrl: inferenceUrl,
+      apiKey,
+      timeout,
+      maxRetries,
+      customHeaders
+    });
+    this.instances = new Instances(infraTransport);
+    this.crates = new Crates(infraTransport);
+    this.projects = new Projects(infraTransport);
+    this.sshKeys = new SSHKeys(infraTransport);
+    this.storage = new Storage(infraTransport);
+    this.billing = new Billing(infraTransport);
+    this.templates = new Templates(infraTransport);
+    this.models = new Models(inferenceTransport, inferenceUrl, apiKey);
+  }
+};
+
+exports.ApiError = ApiError;
+exports.AuthenticationError = AuthenticationError;
+exports.BadRequestError = BadRequestError;
+exports.ConflictError = ConflictError;
+exports.ConnectionError = ConnectionError;
+exports.InsufficientCreditsError = InsufficientCreditsError;
+exports.InternalServerError = InternalServerError;
+exports.NotFoundError = NotFoundError;
+exports.PaginatedResponse = PaginatedResponse;
+exports.PermissionDeniedError = PermissionDeniedError;
+exports.RateLimitError = RateLimitError;
+exports.Runcrate = Runcrate;
+exports.RuncrateError = RuncrateError;
+exports.TimeoutError = TimeoutError;
+exports.default = Runcrate;
+//# sourceMappingURL=index.cjs.map
+//# sourceMappingURL=index.cjs.map
