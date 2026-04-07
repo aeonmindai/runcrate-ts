@@ -66,6 +66,13 @@ export class ConflictError extends ApiError {
   }
 }
 
+export class UnprocessableEntityError extends ApiError {
+  constructor(message: string, code: string, details?: Record<string, unknown>) {
+    super(message, 422, code, details);
+    this.name = "UnprocessableEntityError";
+  }
+}
+
 export class RateLimitError extends ApiError {
   constructor(message: string, code: string, details?: Record<string, unknown>) {
     super(message, 429, code, details);
@@ -107,28 +114,59 @@ const STATUS_MAP: Record<number, ApiErrorConstructor> = {
   403: PermissionDeniedError,
   404: NotFoundError,
   409: ConflictError,
+  422: UnprocessableEntityError,
   429: RateLimitError,
   500: InternalServerError,
 };
+
+function extractErrorInfo(body: unknown): {
+  message: string | null;
+  code: string | null;
+  details: Record<string, unknown> | undefined;
+} {
+  if (!body || typeof body !== "object") {
+    return { message: null, code: null, details: undefined };
+  }
+
+  const b = body as Record<string, unknown>;
+
+  // Format: { error: { code, message, details } }
+  if (b.error && typeof b.error === "object") {
+    const e = b.error as Record<string, unknown>;
+    return {
+      message: (e.message as string) ?? null,
+      code: (e.code as string) ?? null,
+      details: e.details as Record<string, unknown> | undefined,
+    };
+  }
+
+  // Format: { error: "string message" }
+  if (typeof b.error === "string") {
+    return { message: b.error, code: null, details: undefined };
+  }
+
+  // Format: { message: "string" }
+  if (typeof b.message === "string") {
+    return { message: b.message, code: (b.code as string) ?? null, details: undefined };
+  }
+
+  // Format: { detail: "string" } (FastAPI style)
+  if (typeof b.detail === "string") {
+    return { message: b.detail, code: null, details: undefined };
+  }
+
+  // Unknown format — stringify the whole body
+  return { message: JSON.stringify(body), code: null, details: undefined };
+}
 
 export function makeApiError(
   statusCode: number,
   body: unknown,
   fallbackMessage: string,
 ): ApiError {
-  let code = "unknown";
-  let message = fallbackMessage;
-  let details: Record<string, unknown> | undefined;
-
-  if (body && typeof body === "object" && "error" in body) {
-    const err = (body as Record<string, unknown>).error;
-    if (err && typeof err === "object") {
-      const e = err as Record<string, unknown>;
-      code = (e.code as string) ?? "unknown";
-      message = (e.message as string) ?? fallbackMessage;
-      details = e.details as Record<string, unknown> | undefined;
-    }
-  }
+  const { message: extractedMessage, code: extractedCode, details } = extractErrorInfo(body);
+  const message = extractedMessage ?? fallbackMessage;
+  const code = extractedCode ?? "api_error";
 
   const Cls = STATUS_MAP[statusCode];
   if (!Cls) {

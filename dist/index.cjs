@@ -3,6 +3,8 @@
 Object.defineProperty(exports, '__esModule', { value: true });
 
 var promises = require('fs/promises');
+var fs = require('fs');
+var path = require('path');
 
 // src/errors.ts
 var RuncrateError = class extends Error {
@@ -59,6 +61,12 @@ var ConflictError = class extends ApiError {
     this.name = "ConflictError";
   }
 };
+var UnprocessableEntityError = class extends ApiError {
+  constructor(message, code, details) {
+    super(message, 422, code, details);
+    this.name = "UnprocessableEntityError";
+  }
+};
 var RateLimitError = class extends ApiError {
   constructor(message, code, details) {
     super(message, 429, code, details);
@@ -90,22 +98,38 @@ var STATUS_MAP = {
   403: PermissionDeniedError,
   404: NotFoundError,
   409: ConflictError,
+  422: UnprocessableEntityError,
   429: RateLimitError,
   500: InternalServerError
 };
-function makeApiError(statusCode, body, fallbackMessage) {
-  let code = "unknown";
-  let message = fallbackMessage;
-  let details;
-  if (body && typeof body === "object" && "error" in body) {
-    const err = body.error;
-    if (err && typeof err === "object") {
-      const e = err;
-      code = e.code ?? "unknown";
-      message = e.message ?? fallbackMessage;
-      details = e.details;
-    }
+function extractErrorInfo(body) {
+  if (!body || typeof body !== "object") {
+    return { message: null, code: null, details: void 0 };
   }
+  const b = body;
+  if (b.error && typeof b.error === "object") {
+    const e = b.error;
+    return {
+      message: e.message ?? null,
+      code: e.code ?? null,
+      details: e.details
+    };
+  }
+  if (typeof b.error === "string") {
+    return { message: b.error, code: null, details: void 0 };
+  }
+  if (typeof b.message === "string") {
+    return { message: b.message, code: b.code ?? null, details: void 0 };
+  }
+  if (typeof b.detail === "string") {
+    return { message: b.detail, code: null, details: void 0 };
+  }
+  return { message: JSON.stringify(body), code: null, details: void 0 };
+}
+function makeApiError(statusCode, body, fallbackMessage) {
+  const { message: extractedMessage, code: extractedCode, details } = extractErrorInfo(body);
+  const message = extractedMessage ?? fallbackMessage;
+  const code = extractedCode ?? "api_error";
   const Cls = STATUS_MAP[statusCode];
   if (!Cls) {
     return new ApiError(message, statusCode, code, details);
@@ -592,6 +616,34 @@ async function* parseSSEStream(response) {
 }
 
 // src/resources/models.ts
+var IMAGE_FIELDS = /* @__PURE__ */ new Set(["image", "startImage", "start_image", "mask", "controlImage", "control_image"]);
+var MIME_MAP = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".gif": "image/gif"
+};
+async function resolveImage(value) {
+  if (typeof value !== "string") return value;
+  if (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("data:")) return value;
+  if (value.length > 200 && !value.includes("/") && !value.includes("\\")) return value;
+  if (fs.existsSync(value)) {
+    const ext = path.extname(value).toLowerCase();
+    const mime = MIME_MAP[ext] ?? "image/png";
+    const data = await promises.readFile(value);
+    return `data:${mime};base64,${data.toString("base64")}`;
+  }
+  return value;
+}
+async function resolveImageFields(params) {
+  for (const key of Object.keys(params)) {
+    if (IMAGE_FIELDS.has(key)) {
+      params[key] = await resolveImage(params[key]);
+    }
+  }
+  return params;
+}
 function decodeImageBytes(imgData) {
   if (imgData.b64Json) {
     return Buffer.from(imgData.b64Json, "base64");
@@ -631,10 +683,11 @@ var Models = class {
     return data;
   }
   async generateImage(params) {
+    const body = await resolveImageFields(removeUndefined(params));
     const { data } = await this.transport.request({
       method: "POST",
       path: "/v1/images/generations",
-      body: removeUndefined(params),
+      body,
       timeout: 120,
       noUnwrap: true
     });
@@ -657,10 +710,11 @@ var Models = class {
     return result;
   }
   async generateVideo(params) {
+    const body = await resolveImageFields(removeUndefined(params));
     const { data } = await this.transport.request({
       method: "POST",
       path: "/v1/videos",
-      body: removeUndefined(params),
+      body,
       timeout: 120,
       noUnwrap: true
     });
@@ -713,9 +767,14 @@ var Models = class {
     await promises.writeFile(path, audio);
   }
   async transcribe(params) {
-    const { model, file, filename = "audio.wav" } = params;
+    const { model, file, filename = "audio.wav", language, responseFormat, ...extra } = params;
     const formData = new FormData();
     formData.append("model", model);
+    if (language) formData.append("language", language);
+    if (responseFormat) formData.append("response_format", responseFormat);
+    for (const [key, value] of Object.entries(extra)) {
+      if (value !== void 0) formData.append(key, String(value));
+    }
     if (file instanceof Blob) {
       formData.append("file", file, filename);
     } else {
@@ -819,6 +878,7 @@ exports.RateLimitError = RateLimitError;
 exports.Runcrate = Runcrate;
 exports.RuncrateError = RuncrateError;
 exports.TimeoutError = TimeoutError;
+exports.UnprocessableEntityError = UnprocessableEntityError;
 exports.default = Runcrate;
 //# sourceMappingURL=index.cjs.map
 //# sourceMappingURL=index.cjs.map

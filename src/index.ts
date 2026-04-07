@@ -53,6 +53,7 @@ export {
   PermissionDeniedError,
   NotFoundError,
   ConflictError,
+  UnprocessableEntityError,
   RateLimitError,
   InternalServerError,
   ConnectionError,

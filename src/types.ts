@@ -270,6 +270,7 @@ export interface ChatCompletionParams {
   stop?: string | string[];
   frequencyPenalty?: number;
   presencePenalty?: number;
+  [key: string]: unknown;
 }
 
 export interface ChatChoice {
@@ -307,6 +308,7 @@ export interface ImageGenerationParams {
   guidance?: number;
   seed?: number;
   negativePrompt?: string;
+  [key: string]: unknown;
 }
 
 export interface ImageData {
@@ -329,6 +331,7 @@ export interface VideoGenerationParams {
   aspectRatio?: string;
   width?: number;
   height?: number;
+  [key: string]: unknown;
 }
 
 export interface VideoJob {
@@ -347,12 +350,16 @@ export interface TTSParams {
   input: string;
   voice?: string;
   responseFormat?: string;
+  [key: string]: unknown;
 }
 
 export interface TranscribeParams {
   model: string;
   file: Blob | Buffer | ArrayBuffer;
   filename?: string;
+  language?: string;
+  responseFormat?: string;
+  [key: string]: unknown;
 }
 
 export interface Transcription {

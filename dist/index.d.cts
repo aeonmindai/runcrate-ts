@@ -224,6 +224,7 @@ interface ChatCompletionParams {
     stop?: string | string[];
     frequencyPenalty?: number;
     presencePenalty?: number;
+    [key: string]: unknown;
 }
 interface ChatChoice {
     index: number;
@@ -257,6 +258,7 @@ interface ImageGenerationParams {
     guidance?: number;
     seed?: number;
     negativePrompt?: string;
+    [key: string]: unknown;
 }
 interface ImageData {
     url?: string | null;
@@ -276,6 +278,7 @@ interface VideoGenerationParams {
     aspectRatio?: string;
     width?: number;
     height?: number;
+    [key: string]: unknown;
 }
 interface VideoJob {
     id: string;
@@ -291,11 +294,15 @@ interface TTSParams {
     input: string;
     voice?: string;
     responseFormat?: string;
+    [key: string]: unknown;
 }
 interface TranscribeParams {
     model: string;
     file: Blob | Buffer | ArrayBuffer;
     filename?: string;
+    language?: string;
+    responseFormat?: string;
+    [key: string]: unknown;
 }
 interface Transcription {
     text: string;
@@ -466,6 +473,9 @@ declare class NotFoundError extends ApiError {
 declare class ConflictError extends ApiError {
     constructor(message: string, code: string, details?: Record<string, unknown>);
 }
+declare class UnprocessableEntityError extends ApiError {
+    constructor(message: string, code: string, details?: Record<string, unknown>);
+}
 declare class RateLimitError extends ApiError {
     constructor(message: string, code: string, details?: Record<string, unknown>);
 }
@@ -479,4 +489,4 @@ declare class TimeoutError extends RuncrateError {
     constructor(message: string);
 }
 
-export { ApiError, AuthenticationError, BadRequestError, type Balance, type ChatChoice, type ChatCompletion, type ChatCompletionParams, type ChatMessage, type ChatUsage, ConflictError, ConnectionError, type Crate, type CrateCreateParams, type CrateListParams, type ImageData, type ImageGeneration, type ImageGenerationParams, type Instance, type InstanceCreateParams, type InstanceListParams, type InstanceStatus, type InstanceType, type InstanceTypeListParams, InsufficientCreditsError, InternalServerError, type ListMeta, NotFoundError, PaginatedResponse, PermissionDeniedError, type Project, type ProjectCreateParams, type ProjectUpdateParams, RateLimitError, Runcrate, type RuncrateConfig, RuncrateError, type SSHKey, type SSHKeyCreateParams, type StorageListParams, type StorageVolume, type TTSParams, type Template, type TemplateListParams, TimeoutError, type Transaction, type TransactionListParams, type TranscribeParams, type Transcription, type UsageParams, type UsageSummary, type VideoGenerationParams, type VideoJob, type VideoSaveParams, Runcrate as default };
+export { ApiError, AuthenticationError, BadRequestError, type Balance, type ChatChoice, type ChatCompletion, type ChatCompletionParams, type ChatMessage, type ChatUsage, ConflictError, ConnectionError, type Crate, type CrateCreateParams, type CrateListParams, type ImageData, type ImageGeneration, type ImageGenerationParams, type Instance, type InstanceCreateParams, type InstanceListParams, type InstanceStatus, type InstanceType, type InstanceTypeListParams, InsufficientCreditsError, InternalServerError, type ListMeta, NotFoundError, PaginatedResponse, PermissionDeniedError, type Project, type ProjectCreateParams, type ProjectUpdateParams, RateLimitError, Runcrate, type RuncrateConfig, RuncrateError, type SSHKey, type SSHKeyCreateParams, type StorageListParams, type StorageVolume, type TTSParams, type Template, type TemplateListParams, TimeoutError, type Transaction, type TransactionListParams, type TranscribeParams, type Transcription, UnprocessableEntityError, type UsageParams, type UsageSummary, type VideoGenerationParams, type VideoJob, type VideoSaveParams, Runcrate as default };

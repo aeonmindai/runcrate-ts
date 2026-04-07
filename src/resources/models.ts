@@ -1,4 +1,6 @@
-import { writeFile as fsWriteFile } from "node:fs/promises";
+import { readFile, writeFile as fsWriteFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { extname } from "node:path";
 import { makeApiError } from "../errors.js";
 import { parseSSEStream } from "../streaming.js";
 import type { Transport } from "../transport.js";
@@ -15,6 +17,38 @@ import type {
   VideoSaveParams,
 } from "../types.js";
 import { removeUndefined } from "../util.js";
+
+const IMAGE_FIELDS = new Set(["image", "startImage", "start_image", "mask", "controlImage", "control_image"]);
+
+const MIME_MAP: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".gif": "image/gif",
+};
+
+async function resolveImage(value: unknown): Promise<unknown> {
+  if (typeof value !== "string") return value;
+  if (value.startsWith("http://") || value.startsWith("https://") || value.startsWith("data:")) return value;
+  if (value.length > 200 && !value.includes("/") && !value.includes("\\")) return value;
+  if (existsSync(value)) {
+    const ext = extname(value).toLowerCase();
+    const mime = MIME_MAP[ext] ?? "image/png";
+    const data = await readFile(value);
+    return `data:${mime};base64,${data.toString("base64")}`;
+  }
+  return value;
+}
+
+async function resolveImageFields(params: Record<string, unknown>): Promise<Record<string, unknown>> {
+  for (const key of Object.keys(params)) {
+    if (IMAGE_FIELDS.has(key)) {
+      params[key] = await resolveImage(params[key]);
+    }
+  }
+  return params;
+}
 
 function decodeImageBytes(imgData: { url?: string | null; b64Json?: string | null }): Buffer | null {
   if (imgData.b64Json) {
@@ -74,10 +108,11 @@ export class Models {
   }
 
   async generateImage(params: ImageGenerationParams): Promise<ImageGeneration & { save(path: string): Promise<void> }> {
+    const body = await resolveImageFields(removeUndefined(params));
     const { data } = await this.transport.request<ImageGeneration>({
       method: "POST",
       path: "/v1/images/generations",
-      body: removeUndefined(params),
+      body,
       timeout: 120,
       noUnwrap: true,
     });
@@ -106,10 +141,11 @@ export class Models {
   }
 
   async generateVideo(params: VideoGenerationParams): Promise<VideoJob> {
+    const body = await resolveImageFields(removeUndefined(params));
     const { data } = await this.transport.request<VideoJob>({
       method: "POST",
       path: "/v1/videos",
-      body: removeUndefined(params),
+      body,
       timeout: 120,
       noUnwrap: true,
     });
@@ -176,9 +212,14 @@ export class Models {
   }
 
   async transcribe(params: TranscribeParams): Promise<Transcription> {
-    const { model, file, filename = "audio.wav" } = params;
+    const { model, file, filename = "audio.wav", language, responseFormat, ...extra } = params;
     const formData = new FormData();
     formData.append("model", model);
+    if (language) formData.append("language", language);
+    if (responseFormat) formData.append("response_format", responseFormat);
+    for (const [key, value] of Object.entries(extra)) {
+      if (value !== undefined) formData.append(key, String(value));
+    }
 
     if (file instanceof Blob) {
       formData.append("file", file, filename);
