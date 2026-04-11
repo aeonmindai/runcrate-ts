@@ -440,6 +440,94 @@ var Projects = class {
   }
 };
 
+// src/resources/workspaces.ts
+var Workspaces = class {
+  constructor(transport) {
+    this.transport = transport;
+  }
+  transport;
+  async list() {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: "/api/v1/workspaces"
+    });
+    return data;
+  }
+  async create(params) {
+    const { data } = await this.transport.request({
+      method: "POST",
+      path: "/api/v1/workspaces",
+      body: toSnakeCase(params)
+    });
+    return data;
+  }
+  async get(id) {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: `/api/v1/workspaces/${id}`
+    });
+    return data;
+  }
+  async update(id, params) {
+    const { data } = await this.transport.request({
+      method: "PATCH",
+      path: `/api/v1/workspaces/${id}`,
+      body: toSnakeCase(params)
+    });
+    return data;
+  }
+  async delete(id) {
+    await this.transport.request({
+      method: "DELETE",
+      path: `/api/v1/workspaces/${id}`
+    });
+  }
+};
+
+// src/resources/environments.ts
+var Environments = class {
+  constructor(transport) {
+    this.transport = transport;
+  }
+  transport;
+  async list() {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: "/api/v1/environments"
+    });
+    return data;
+  }
+  async create(params) {
+    const { data } = await this.transport.request({
+      method: "POST",
+      path: "/api/v1/environments",
+      body: toSnakeCase(params)
+    });
+    return data;
+  }
+  async get(id) {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: `/api/v1/environments/${id}`
+    });
+    return data;
+  }
+  async update(id, params) {
+    const { data } = await this.transport.request({
+      method: "PATCH",
+      path: `/api/v1/environments/${id}`,
+      body: toSnakeCase(params)
+    });
+    return data;
+  }
+  async delete(id) {
+    await this.transport.request({
+      method: "DELETE",
+      path: `/api/v1/environments/${id}`
+    });
+  }
+};
+
 // src/resources/ssh-keys.ts
 var SSHKeys = class {
   constructor(transport) {
@@ -820,6 +908,9 @@ function trimTrailingSlash(url) {
 var Runcrate = class {
   instances;
   crates;
+  workspaces;
+  environments;
+  /** @deprecated Use `workspaces` instead. */
   projects;
   sshKeys;
   storage;
@@ -851,6 +942,8 @@ var Runcrate = class {
     });
     this.instances = new Instances(infraTransport);
     this.crates = new Crates(infraTransport);
+    this.workspaces = new Workspaces(infraTransport);
+    this.environments = new Environments(infraTransport);
     this.projects = new Projects(infraTransport);
     this.sshKeys = new SSHKeys(infraTransport);
     this.storage = new Storage(infraTransport);

@@ -129,8 +129,9 @@ export interface CrateListParams {
   search?: string;
 }
 
-// ─── Projects ───────────────────────────────────────────────────────────────
+// ─── Projects (deprecated — use Workspaces) ────────────────────────────────
 
+/** @deprecated Use `Workspace` instead. */
 export interface Project {
   id: string;
   name: string;
@@ -143,15 +144,63 @@ export interface Project {
   [key: string]: unknown;
 }
 
+/** @deprecated Use `WorkspaceCreateParams` instead. */
 export interface ProjectCreateParams {
   name: string;
   description?: string;
   isDefault?: boolean;
 }
 
+/** @deprecated Use `WorkspaceUpdateParams` instead. */
 export interface ProjectUpdateParams {
   name?: string;
   description?: string;
+  isDefault?: boolean;
+}
+
+// ─── Workspaces ─────────────────────────────────────────────────────────────
+
+export interface Workspace {
+  id: string;
+  name: string;
+  description?: string | null;
+  isDefault?: boolean | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  userId?: string | null;
+  resourceCount?: number | null;
+  [key: string]: unknown;
+}
+
+export interface WorkspaceCreateParams {
+  name: string;
+  description?: string;
+  isDefault?: boolean;
+}
+
+export interface WorkspaceUpdateParams {
+  name?: string;
+  description?: string;
+  isDefault?: boolean;
+}
+
+// ─── Environments ───────────────────────────────────────────────────────────
+
+export interface Environment {
+  id: string;
+  name: string;
+  isDefault?: boolean | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  [key: string]: unknown;
+}
+
+export interface EnvironmentCreateParams {
+  name: string;
+}
+
+export interface EnvironmentUpdateParams {
+  name?: string;
   isDefault?: boolean;
 }
 

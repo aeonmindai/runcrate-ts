@@ -3,6 +3,8 @@ import { Transport } from "./transport.js";
 import { Instances } from "./resources/instances.js";
 import { Crates } from "./resources/crates.js";
 import { Projects } from "./resources/projects.js";
+import { Workspaces } from "./resources/workspaces.js";
+import { Environments } from "./resources/environments.js";
 import { SSHKeys } from "./resources/ssh-keys.js";
 import { Storage } from "./resources/storage.js";
 import { Billing } from "./resources/billing.js";
@@ -36,6 +38,9 @@ function trimTrailingSlash(url: string): string {
 export class Runcrate {
   readonly instances: Instances;
   readonly crates: Crates;
+  readonly workspaces: Workspaces;
+  readonly environments: Environments;
+  /** @deprecated Use `workspaces` instead. */
   readonly projects: Projects;
   readonly sshKeys: SSHKeys;
   readonly storage: Storage;
@@ -73,6 +78,8 @@ export class Runcrate {
 
     this.instances = new Instances(infraTransport);
     this.crates = new Crates(infraTransport);
+    this.workspaces = new Workspaces(infraTransport);
+    this.environments = new Environments(infraTransport);
     this.projects = new Projects(infraTransport);
     this.sshKeys = new SSHKeys(infraTransport);
     this.storage = new Storage(infraTransport);

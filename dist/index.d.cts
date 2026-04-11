@@ -110,6 +110,7 @@ interface CrateCreateParams {
 interface CrateListParams {
     search?: string;
 }
+/** @deprecated Use `Workspace` instead. */
 interface Project {
     id: string;
     name: string;
@@ -121,14 +122,52 @@ interface Project {
     resourceCount?: number | null;
     [key: string]: unknown;
 }
+/** @deprecated Use `WorkspaceCreateParams` instead. */
 interface ProjectCreateParams {
     name: string;
     description?: string;
     isDefault?: boolean;
 }
+/** @deprecated Use `WorkspaceUpdateParams` instead. */
 interface ProjectUpdateParams {
     name?: string;
     description?: string;
+    isDefault?: boolean;
+}
+interface Workspace {
+    id: string;
+    name: string;
+    description?: string | null;
+    isDefault?: boolean | null;
+    createdAt?: string | null;
+    updatedAt?: string | null;
+    userId?: string | null;
+    resourceCount?: number | null;
+    [key: string]: unknown;
+}
+interface WorkspaceCreateParams {
+    name: string;
+    description?: string;
+    isDefault?: boolean;
+}
+interface WorkspaceUpdateParams {
+    name?: string;
+    description?: string;
+    isDefault?: boolean;
+}
+interface Environment {
+    id: string;
+    name: string;
+    isDefault?: boolean | null;
+    createdAt?: string | null;
+    updatedAt?: string | null;
+    [key: string]: unknown;
+}
+interface EnvironmentCreateParams {
+    name: string;
+}
+interface EnvironmentUpdateParams {
+    name?: string;
     isDefault?: boolean;
 }
 interface SSHKey {
@@ -370,6 +409,26 @@ declare class Projects {
     delete(id: string): Promise<void>;
 }
 
+declare class Workspaces {
+    private readonly transport;
+    constructor(transport: Transport);
+    list(): Promise<Workspace[]>;
+    create(params: WorkspaceCreateParams): Promise<Workspace>;
+    get(id: string): Promise<Workspace>;
+    update(id: string, params: WorkspaceUpdateParams): Promise<Workspace>;
+    delete(id: string): Promise<void>;
+}
+
+declare class Environments {
+    private readonly transport;
+    constructor(transport: Transport);
+    list(): Promise<Environment[]>;
+    create(params: EnvironmentCreateParams): Promise<Environment>;
+    get(id: string): Promise<Environment>;
+    update(id: string, params: EnvironmentUpdateParams): Promise<Environment>;
+    delete(id: string): Promise<void>;
+}
+
 declare class SSHKeys {
     private readonly transport;
     constructor(transport: Transport);
@@ -437,6 +496,9 @@ declare class Models {
 declare class Runcrate {
     readonly instances: Instances;
     readonly crates: Crates;
+    readonly workspaces: Workspaces;
+    readonly environments: Environments;
+    /** @deprecated Use `workspaces` instead. */
     readonly projects: Projects;
     readonly sshKeys: SSHKeys;
     readonly storage: Storage;
