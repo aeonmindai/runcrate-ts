@@ -51,6 +51,8 @@ export interface TransportConfig {
   timeout: number;
   maxRetries: number;
   customHeaders: Record<string, string>;
+  /** Optional environment name. Appended as ?environment=<name> to every request. */
+  environment?: string;
 }
 
 export interface RequestOptions {
@@ -84,7 +86,10 @@ export class Transport {
 
   async request<T>(options: RequestOptions): Promise<ApiResponse<T>> {
     const { method, path, params, body, timeout, raw } = options;
-    const url = buildUrl(this.config.baseUrl, path, params);
+    const mergedParams = this.config.environment
+      ? { environment: this.config.environment, ...params }
+      : params;
+    const url = buildUrl(this.config.baseUrl, path, mergedParams);
     let lastError: Error | undefined;
 
     for (let attempt = 0; attempt <= this.config.maxRetries; attempt++) {

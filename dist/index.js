@@ -178,7 +178,8 @@ var Transport = class {
   }
   async request(options) {
     const { method, path, params, body, timeout, raw } = options;
-    const url = buildUrl(this.config.baseUrl, path, params);
+    const mergedParams = this.config.environment ? { environment: this.config.environment, ...params } : params;
+    const url = buildUrl(this.config.baseUrl, path, mergedParams);
     let lastError;
     for (let attempt = 0; attempt <= this.config.maxRetries; attempt++) {
       let response;
@@ -578,6 +579,36 @@ var Storage = class {
     });
     return data;
   }
+  async listRegions() {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: "/api/v1/storage/regions"
+    });
+    return data;
+  }
+  async create(params) {
+    const { data } = await this.transport.request({
+      method: "POST",
+      path: "/api/v1/storage",
+      body: toSnakeCase(params)
+    });
+    return data;
+  }
+  async resize(id, sizeGb) {
+    const { data } = await this.transport.request({
+      method: "PATCH",
+      path: `/api/v1/storage/${id}`,
+      body: { size_gb: sizeGb }
+    });
+    return data;
+  }
+  async delete(id) {
+    const { data } = await this.transport.request({
+      method: "DELETE",
+      path: `/api/v1/storage/${id}`
+    });
+    return data;
+  }
 };
 
 // src/pagination.ts
@@ -926,12 +957,14 @@ var Runcrate = class {
     const timeout = config?.timeout ?? DEFAULT_TIMEOUT;
     const maxRetries = config?.maxRetries ?? DEFAULT_MAX_RETRIES;
     const customHeaders = config?.customHeaders ?? {};
+    const environment = config?.environment;
     const infraTransport = new Transport({
       baseUrl,
       apiKey,
       timeout,
       maxRetries,
-      customHeaders
+      customHeaders,
+      environment
     });
     const inferenceTransport = new Transport({
       baseUrl: inferenceUrl,

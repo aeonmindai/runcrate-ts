@@ -40,7 +40,7 @@ describe("Transport", () => {
     });
 
     expect(result.data).toEqual({ id: "1", name: "test" });
-    expect(calls[0]!.url).toBe("https://runcrate.com/api/v1/test");
+    expect(calls[0]!.url).toBe("https://runcrate.ai/api/v1/test");
     expect(calls[0]!.init.method).toBe("GET");
   });
 

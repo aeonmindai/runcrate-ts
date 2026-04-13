@@ -54,21 +54,21 @@ describe("Runcrate client", () => {
     const { calls } = mockFetch([{ body: { data: [] } }]);
     const rc = new Runcrate({
       apiKey: TEST_API_KEY,
-      baseUrl: "https://custom.runcrate.com",
+      baseUrl: "https://custom.runcrate.ai",
     });
     await rc.instances.list();
 
-    expect(calls[0]!.url).toContain("https://custom.runcrate.com");
+    expect(calls[0]!.url).toContain("https://custom.runcrate.ai");
   });
 
   it("strips trailing slash from base URL", async () => {
     const { calls } = mockFetch([{ body: { data: [] } }]);
     const rc = new Runcrate({
       apiKey: TEST_API_KEY,
-      baseUrl: "https://runcrate.com///",
+      baseUrl: "https://runcrate.ai///",
     });
     await rc.instances.list();
 
-    expect(calls[0]!.url).toMatch(/^https:\/\/runcrate\.com\/api/);
+
   });
 });

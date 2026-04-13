@@ -252,6 +252,57 @@ describe("Storage resource", () => {
     expect(result).toEqual(volume);
     expect(calls[0]!.url).toContain("/api/v1/storage/v1");
   });
+
+  it("lists storage regions", async () => {
+    const regions = [
+      { id: "137", name: "us-east-1", provider: "aws-s3" },
+      { id: "21", name: "us-west-1", provider: "wasabi" },
+    ];
+    const { calls } = mockFetch([{ body: { data: regions } }]);
+    const rc = makeClient();
+
+    const result = await rc.storage.listRegions();
+    expect(result).toEqual(regions);
+    expect(calls[0]!.url).toContain("/api/v1/storage/regions");
+  });
+
+  it("creates a storage volume", async () => {
+    const created = { id: "v1", name: "datasets", sizeGb: 100, status: "active", region: "137" };
+    const { calls } = mockFetch([{ body: { data: created } }]);
+    const rc = makeClient();
+
+    const result = await rc.storage.create({ name: "datasets", sizeGb: 100, region: "us-east-1" });
+    expect(result).toEqual(created);
+    expect(calls[0]!.init.method).toBe("POST");
+    const body = JSON.parse(calls[0]!.init.body as string);
+    expect(body.name).toBe("datasets");
+    expect(body.size_gb).toBe(100);
+    expect(body.region).toBe("us-east-1");
+  });
+
+  it("resizes a storage volume", async () => {
+    const updated = { id: "v1", name: "datasets", sizeGb: 200, status: "active" };
+    const { calls } = mockFetch([{ body: { data: updated } }]);
+    const rc = makeClient();
+
+    const result = await rc.storage.resize("v1", 200);
+    expect(result).toEqual(updated);
+    expect(calls[0]!.init.method).toBe("PATCH");
+    expect(calls[0]!.url).toContain("/api/v1/storage/v1");
+    const body = JSON.parse(calls[0]!.init.body as string);
+    expect(body.size_gb).toBe(200);
+  });
+
+  it("deletes a storage volume", async () => {
+    const deleteResult = { message: "Storage volume deleted successfully", refundAmount: 0.42 };
+    const { calls } = mockFetch([{ body: { data: deleteResult } }]);
+    const rc = makeClient();
+
+    const result = await rc.storage.delete("v1");
+    expect(result).toEqual(deleteResult);
+    expect(calls[0]!.init.method).toBe("DELETE");
+    expect(calls[0]!.url).toContain("/api/v1/storage/v1");
+  });
 });
 
 describe("Billing resource", () => {

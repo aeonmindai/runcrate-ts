@@ -7,6 +7,8 @@ export interface RuncrateConfig {
   timeout?: number;
   maxRetries?: number;
   customHeaders?: Record<string, string>;
+  /** Optional environment name. If not set, the workspace's default environment is used. */
+  environment?: string;
 }
 
 // ─── Shared ─────────────────────────────────────────────────────────────────
@@ -241,6 +243,25 @@ export interface StorageVolume {
 
 export interface StorageListParams {
   search?: string;
+}
+
+export interface StorageCreateParams {
+  name: string;
+  sizeGb: number;
+  region: string;
+}
+
+export interface StorageDeleteResult {
+  message: string;
+  refundAmount?: number;
+  [key: string]: unknown;
+}
+
+export interface StorageRegion {
+  id: string;
+  name: string;
+  provider: string;
+  [key: string]: unknown;
 }
 
 // ─── Billing ────────────────────────────────────────────────────────────────

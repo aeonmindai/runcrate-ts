@@ -11,7 +11,7 @@ import { Billing } from "./resources/billing.js";
 import { Templates } from "./resources/templates.js";
 import { Models } from "./resources/models.js";
 
-const DEFAULT_BASE_URL = "https://runcrate.com";
+const DEFAULT_BASE_URL = "https://runcrate.ai";
 const DEFAULT_INFERENCE_URL = "https://api.runcrate.ai";
 const DEFAULT_TIMEOUT = 30;
 const DEFAULT_MAX_RETRIES = 3;
@@ -57,6 +57,7 @@ export class Runcrate {
     const timeout = config?.timeout ?? DEFAULT_TIMEOUT;
     const maxRetries = config?.maxRetries ?? DEFAULT_MAX_RETRIES;
     const customHeaders = config?.customHeaders ?? {};
+    const environment = config?.environment;
 
     // Infrastructure transport (runcrate.com)
     const infraTransport = new Transport({
@@ -65,6 +66,7 @@ export class Runcrate {
       timeout,
       maxRetries,
       customHeaders,
+      environment,
     });
 
     // Inference transport (api.runcrate.ai)

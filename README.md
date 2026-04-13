@@ -214,7 +214,7 @@ try {
 ```typescript
 const rc = new Runcrate({
   apiKey: 'rc_live_...',        // or RUNCRATE_API_KEY env var
-  baseUrl: 'https://runcrate.com',     // infrastructure API
+  baseUrl: 'https://runcrate.ai',      // infrastructure API
   inferenceUrl: 'https://api.runcrate.ai', // model inference API
   timeout: 30,                  // seconds
   maxRetries: 3,                // retry on 429/5xx

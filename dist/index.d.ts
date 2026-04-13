@@ -5,6 +5,8 @@ interface RuncrateConfig {
     timeout?: number;
     maxRetries?: number;
     customHeaders?: Record<string, string>;
+    /** Optional environment name. If not set, the workspace's default environment is used. */
+    environment?: string;
 }
 interface ListMeta {
     cursor?: string | null;
@@ -201,6 +203,22 @@ interface StorageVolume {
 interface StorageListParams {
     search?: string;
 }
+interface StorageCreateParams {
+    name: string;
+    sizeGb: number;
+    region: string;
+}
+interface StorageDeleteResult {
+    message: string;
+    refundAmount?: number;
+    [key: string]: unknown;
+}
+interface StorageRegion {
+    id: string;
+    name: string;
+    provider: string;
+    [key: string]: unknown;
+}
 interface Balance {
     creditsBalance: number;
     activeUsageCost: number;
@@ -357,6 +375,8 @@ interface TransportConfig {
     timeout: number;
     maxRetries: number;
     customHeaders: Record<string, string>;
+    /** Optional environment name. Appended as ?environment=<name> to every request. */
+    environment?: string;
 }
 interface RequestOptions {
     method: string;
@@ -442,6 +462,10 @@ declare class Storage {
     constructor(transport: Transport);
     list(params?: StorageListParams): Promise<StorageVolume[]>;
     get(id: string): Promise<StorageVolume>;
+    listRegions(): Promise<StorageRegion[]>;
+    create(params: StorageCreateParams): Promise<StorageVolume>;
+    resize(id: string, sizeGb: number): Promise<StorageVolume>;
+    delete(id: string): Promise<StorageDeleteResult>;
 }
 
 declare class PaginatedResponse<T> {

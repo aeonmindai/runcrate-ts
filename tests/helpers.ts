@@ -66,5 +66,5 @@ export function mockFetchStream(lines: string[], status = 200) {
 }
 
 export const TEST_API_KEY = "rc_live_test123456";
-export const TEST_BASE_URL = "https://runcrate.com";
+export const TEST_BASE_URL = "https://runcrate.ai";
 export const TEST_INFERENCE_URL = "https://api.runcrate.ai";
