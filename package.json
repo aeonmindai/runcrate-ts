@@ -1,6 +1,6 @@
 {
   "name": "@runcrate/sdk",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Official Runcrate TypeScript SDK — manage GPU instances and run model inference",
   "type": "module",
   "exports": {
