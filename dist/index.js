@@ -821,7 +821,7 @@ var Models = class {
 };
 
 // src/client.ts
-var DEFAULT_BASE_URL = "https://runcrate.ai";
+var DEFAULT_BASE_URL = "https://www.runcrate.ai";
 var DEFAULT_INFERENCE_URL = "https://api.runcrate.ai";
 var DEFAULT_TIMEOUT = 30;
 var DEFAULT_MAX_RETRIES = 3;
