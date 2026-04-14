@@ -1,6 +1,6 @@
 # Runcrate TypeScript SDK
 
-Official TypeScript/JavaScript SDK for the Runcrate platform. Manage GPU instances, crates, and run model inference.
+Official TypeScript/JavaScript SDK for the Runcrate platform. Manage GPU instances and run model inference.
 
 - Zero runtime dependencies — native `fetch`
 - ESM + CJS dual output
@@ -132,18 +132,6 @@ await rc.instances.terminate('instance-id');
 const types = await rc.instances.listTypes({ gpuType: 'A100' });
 ```
 
-### Crates
-
-```typescript
-const crates = await rc.crates.list();
-const crate = await rc.crates.create({
-  name: 'my-app',
-  sshKeyId: 'key_abc123',
-  template: 'pytorch',
-});
-await rc.crates.terminate('crate-id');
-```
-
 ### SSH Keys
 
 ```typescript
@@ -162,13 +150,13 @@ const volumes = await rc.storage.list();
 const volume = await rc.storage.get('volume-id');
 ```
 
-### Projects
+### Environments
 
 ```typescript
-const projects = await rc.projects.list();
-const project = await rc.projects.create({ name: 'ML Research' });
-await rc.projects.update('project-id', { description: 'Updated' });
-await rc.projects.delete('project-id');
+const environments = await rc.environments.list();
+const env = await rc.environments.create({ name: 'staging' });
+await rc.environments.update('env-id', { name: 'production' });
+await rc.environments.delete('env-id');
 ```
 
 ### Templates

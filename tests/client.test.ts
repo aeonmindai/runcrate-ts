@@ -31,8 +31,7 @@ describe("Runcrate client", () => {
   it("creates all resource namespaces", () => {
     const rc = new Runcrate({ apiKey: TEST_API_KEY });
     expect(rc.instances).toBeDefined();
-    expect(rc.crates).toBeDefined();
-    expect(rc.projects).toBeDefined();
+    expect(rc.environments).toBeDefined();
     expect(rc.sshKeys).toBeDefined();
     expect(rc.storage).toBeDefined();
     expect(rc.billing).toBeDefined();

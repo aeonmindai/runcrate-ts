@@ -137,6 +137,52 @@ function makeApiError(statusCode, body, fallbackMessage) {
   return new Cls(message, code, details);
 }
 
+// src/util.ts
+function removeUndefined(obj) {
+  const result = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== void 0) {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+function camelToSnake(str) {
+  return str.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
+}
+function snakeToCamel(str) {
+  return str.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+}
+function toSnakeCase(obj) {
+  const result = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (value !== void 0) {
+      if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+        result[camelToSnake(key)] = toSnakeCase(value);
+      } else {
+        result[camelToSnake(key)] = value;
+      }
+    }
+  }
+  return result;
+}
+function toCamelCase(obj) {
+  if (obj === null || obj === void 0) {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(toCamelCase);
+  }
+  if (typeof obj === "object") {
+    const result = {};
+    for (const [key, value] of Object.entries(obj)) {
+      result[snakeToCamel(key)] = toCamelCase(value);
+    }
+    return result;
+  }
+  return obj;
+}
+
 // src/transport.ts
 var RETRYABLE_STATUS_CODES = /* @__PURE__ */ new Set([429, 500, 502, 503, 504]);
 var BASE_DELAY = 500;
@@ -247,8 +293,9 @@ var Transport = class {
           `HTTP ${response.status}`
         );
       }
-      const data = options.noUnwrap ? json : json.data ?? json;
-      const meta = options.noUnwrap ? void 0 : json.meta;
+      const rawData = options.noUnwrap ? json : json.data ?? json;
+      const data = toCamelCase(rawData);
+      const meta = options.noUnwrap ? void 0 : toCamelCase(json.meta);
       return { data, meta };
     }
     throw lastError ?? new Error("Unexpected retry exhaustion");
@@ -288,29 +335,6 @@ var Transport = class {
     return response;
   }
 };
-
-// src/util.ts
-function removeUndefined(obj) {
-  const result = {};
-  for (const [key, value] of Object.entries(obj)) {
-    if (value !== void 0) {
-      result[key] = value;
-    }
-  }
-  return result;
-}
-function camelToSnake(str) {
-  return str.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`);
-}
-function toSnakeCase(obj) {
-  const result = {};
-  for (const [key, value] of Object.entries(obj)) {
-    if (value !== void 0) {
-      result[camelToSnake(key)] = value;
-    }
-  }
-  return result;
-}
 
 // src/resources/instances.ts
 var Instances = class {
@@ -361,131 +385,6 @@ var Instances = class {
       params: params ? removeUndefined(params) : void 0
     });
     return data;
-  }
-};
-
-// src/resources/crates.ts
-var Crates = class {
-  constructor(transport) {
-    this.transport = transport;
-  }
-  transport;
-  async list(params) {
-    const { data } = await this.transport.request({
-      method: "GET",
-      path: "/api/v1/crates",
-      params: params ? removeUndefined(params) : void 0
-    });
-    return data;
-  }
-  async create(params) {
-    const { data } = await this.transport.request({
-      method: "POST",
-      path: "/api/v1/crates",
-      body: toSnakeCase(params)
-    });
-    return data;
-  }
-  async get(id) {
-    const { data } = await this.transport.request({
-      method: "GET",
-      path: `/api/v1/crates/${id}`
-    });
-    return data;
-  }
-  async terminate(id) {
-    await this.transport.request({
-      method: "DELETE",
-      path: `/api/v1/crates/${id}`
-    });
-  }
-};
-
-// src/resources/projects.ts
-var Projects = class {
-  constructor(transport) {
-    this.transport = transport;
-  }
-  transport;
-  async list() {
-    const { data } = await this.transport.request({
-      method: "GET",
-      path: "/api/v1/projects"
-    });
-    return data;
-  }
-  async create(params) {
-    const { data } = await this.transport.request({
-      method: "POST",
-      path: "/api/v1/projects",
-      body: toSnakeCase(params)
-    });
-    return data;
-  }
-  async get(id) {
-    const { data } = await this.transport.request({
-      method: "GET",
-      path: `/api/v1/projects/${id}`
-    });
-    return data;
-  }
-  async update(id, params) {
-    const { data } = await this.transport.request({
-      method: "PATCH",
-      path: `/api/v1/projects/${id}`,
-      body: toSnakeCase(params)
-    });
-    return data;
-  }
-  async delete(id) {
-    await this.transport.request({
-      method: "DELETE",
-      path: `/api/v1/projects/${id}`
-    });
-  }
-};
-
-// src/resources/workspaces.ts
-var Workspaces = class {
-  constructor(transport) {
-    this.transport = transport;
-  }
-  transport;
-  async list() {
-    const { data } = await this.transport.request({
-      method: "GET",
-      path: "/api/v1/workspaces"
-    });
-    return data;
-  }
-  async create(params) {
-    const { data } = await this.transport.request({
-      method: "POST",
-      path: "/api/v1/workspaces",
-      body: toSnakeCase(params)
-    });
-    return data;
-  }
-  async get(id) {
-    const { data } = await this.transport.request({
-      method: "GET",
-      path: `/api/v1/workspaces/${id}`
-    });
-    return data;
-  }
-  async update(id, params) {
-    const { data } = await this.transport.request({
-      method: "PATCH",
-      path: `/api/v1/workspaces/${id}`,
-      body: toSnakeCase(params)
-    });
-    return data;
-  }
-  async delete(id) {
-    await this.transport.request({
-      method: "DELETE",
-      path: `/api/v1/workspaces/${id}`
-    });
   }
 };
 
@@ -720,13 +619,20 @@ async function* parseSSEStream(response) {
         if (!trimmed.startsWith("data: ")) continue;
         const data = trimmed.slice(6);
         if (data === "[DONE]") return;
-        yield JSON.parse(data);
+        try {
+          yield JSON.parse(data);
+        } catch {
+          continue;
+        }
       }
     }
     if (buffer.trim().startsWith("data: ")) {
       const data = buffer.trim().slice(6);
       if (data !== "[DONE]") {
-        yield JSON.parse(data);
+        try {
+          yield JSON.parse(data);
+        } catch {
+        }
       }
     }
   } finally {
@@ -919,7 +825,7 @@ var Models = class {
 };
 
 // src/client.ts
-var DEFAULT_BASE_URL = "https://runcrate.com";
+var DEFAULT_BASE_URL = "https://runcrate.ai";
 var DEFAULT_INFERENCE_URL = "https://api.runcrate.ai";
 var DEFAULT_TIMEOUT = 30;
 var DEFAULT_MAX_RETRIES = 3;
@@ -942,16 +848,21 @@ function trimTrailingSlash(url) {
 }
 var Runcrate = class {
   instances;
-  crates;
-  workspaces;
   environments;
-  /** @deprecated Use `workspaces` instead. */
-  projects;
   sshKeys;
   storage;
   billing;
   templates;
   models;
+  // ─── OpenAI-compatible aliases ─────────────────────────────────────────────
+  /** OpenAI-compatible chat namespace: `rc.chat.completions.create(...)` */
+  chat;
+  /** OpenAI-compatible images namespace: `rc.images.generate(...)` */
+  images;
+  /** OpenAI-compatible audio namespace: `rc.audio.speech.create(...)`, `rc.audio.transcriptions.create(...)` */
+  audio;
+  /** Video namespace: `rc.videos.generate(...)` */
+  videos;
   constructor(config) {
     const apiKey = resolveApiKey(config);
     const baseUrl = trimTrailingSlash(config?.baseUrl ?? DEFAULT_BASE_URL);
@@ -978,15 +889,34 @@ var Runcrate = class {
       customHeaders
     });
     this.instances = new Instances(infraTransport);
-    this.crates = new Crates(infraTransport);
-    this.workspaces = new Workspaces(infraTransport);
     this.environments = new Environments(infraTransport);
-    this.projects = new Projects(infraTransport);
     this.sshKeys = new SSHKeys(infraTransport);
     this.storage = new Storage(infraTransport);
     this.billing = new Billing(infraTransport);
     this.templates = new Templates(infraTransport);
     this.models = new Models(inferenceTransport, inferenceUrl, apiKey);
+    this.chat = {
+      completions: {
+        create: (params) => this.models.chatCompletion(params)
+      }
+    };
+    this.images = {
+      generate: (params) => this.models.generateImage(params)
+    };
+    this.audio = {
+      speech: {
+        create: (params) => this.models.textToSpeech(params)
+      },
+      transcriptions: {
+        create: (params) => this.models.transcribe(params)
+      }
+    };
+    this.videos = {
+      generate: (params) => this.models.generateVideo(params),
+      getStatus: (id) => this.models.getVideoStatus(id),
+      download: (id) => this.models.downloadVideo(id),
+      generateAndSave: (path, params) => this.models.generateVideoAndSave(path, params)
+    };
   }
 };
 

@@ -1,7 +1,7 @@
 {
   "name": "@runcrate/sdk",
   "version": "0.1.0",
-  "description": "Official Runcrate TypeScript SDK — manage GPU instances, crates, and run model inference",
+  "description": "Official Runcrate TypeScript SDK — manage GPU instances and run model inference",
   "type": "module",
   "exports": {
     ".": {
@@ -35,9 +35,9 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/aeonmindai/runcrate",
-    "directory": "packages/sdk-ts"
+    "url": "https://github.com/aeonmindai/runcrate-ts"
   },
+  "homepage": "https://runcrate.ai",
   "keywords": [
     "runcrate",
     "gpu",

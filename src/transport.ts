@@ -5,6 +5,7 @@ import {
   ApiError,
 } from "./errors.js";
 import type { ListMeta } from "./types.js";
+import { toCamelCase } from "./util.js";
 
 const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 const BASE_DELAY = 500;
@@ -166,10 +167,11 @@ export class Transport {
         );
       }
 
-      const data = options.noUnwrap ? json : (json.data ?? json);
-      const meta = options.noUnwrap ? undefined : (json.meta as ListMeta | undefined);
+      const rawData = options.noUnwrap ? json : (json.data ?? json);
+      const data = toCamelCase(rawData) as T;
+      const meta = options.noUnwrap ? undefined : (toCamelCase(json.meta) as ListMeta | undefined);
 
-      return { data: data as T, meta };
+      return { data, meta };
     }
 
     throw lastError ?? new Error("Unexpected retry exhaustion");

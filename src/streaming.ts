@@ -25,14 +25,23 @@ export async function* parseSSEStream(
         const data = trimmed.slice(6);
         if (data === "[DONE]") return;
 
-        yield JSON.parse(data) as Record<string, unknown>;
+        try {
+          yield JSON.parse(data) as Record<string, unknown>;
+        } catch {
+          // Skip malformed JSON chunks - server may send partial data
+          continue;
+        }
       }
     }
 
     if (buffer.trim().startsWith("data: ")) {
       const data = buffer.trim().slice(6);
       if (data !== "[DONE]") {
-        yield JSON.parse(data) as Record<string, unknown>;
+        try {
+          yield JSON.parse(data) as Record<string, unknown>;
+        } catch {
+          // Skip malformed final chunk
+        }
       }
     }
   } finally {

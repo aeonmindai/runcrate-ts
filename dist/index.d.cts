@@ -74,89 +74,6 @@ interface InstanceTypeListParams {
     region?: string;
     gpuCount?: number;
 }
-interface Crate {
-    id: string;
-    name: string;
-    status: string;
-    gpuType?: string | null;
-    gpuCount?: number | null;
-    cpuCores?: number | null;
-    memory?: number | null;
-    storage?: number | null;
-    region?: string | null;
-    ip?: string | null;
-    osImage?: string | null;
-    costPerHour?: number | null;
-    deployedAt?: string | null;
-    createdAt?: string | null;
-    updatedAt?: string | null;
-    [key: string]: unknown;
-}
-interface CrateCreateParams {
-    name: string;
-    sshKeyId: string;
-    gpuType?: string;
-    instanceTypeId?: string;
-    region?: string;
-    gpuCount?: number;
-    cpuCores?: number;
-    memory?: number;
-    storage?: number;
-    template?: string;
-    envVars?: Record<string, string>;
-    startupCommands?: string[];
-    storageId?: string;
-    launchScript?: string;
-    launchScriptBase64?: string;
-}
-interface CrateListParams {
-    search?: string;
-}
-/** @deprecated Use `Workspace` instead. */
-interface Project {
-    id: string;
-    name: string;
-    description?: string | null;
-    isDefault?: boolean | null;
-    createdAt?: string | null;
-    updatedAt?: string | null;
-    userId?: string | null;
-    resourceCount?: number | null;
-    [key: string]: unknown;
-}
-/** @deprecated Use `WorkspaceCreateParams` instead. */
-interface ProjectCreateParams {
-    name: string;
-    description?: string;
-    isDefault?: boolean;
-}
-/** @deprecated Use `WorkspaceUpdateParams` instead. */
-interface ProjectUpdateParams {
-    name?: string;
-    description?: string;
-    isDefault?: boolean;
-}
-interface Workspace {
-    id: string;
-    name: string;
-    description?: string | null;
-    isDefault?: boolean | null;
-    createdAt?: string | null;
-    updatedAt?: string | null;
-    userId?: string | null;
-    resourceCount?: number | null;
-    [key: string]: unknown;
-}
-interface WorkspaceCreateParams {
-    name: string;
-    description?: string;
-    isDefault?: boolean;
-}
-interface WorkspaceUpdateParams {
-    name?: string;
-    description?: string;
-    isDefault?: boolean;
-}
 interface Environment {
     id: string;
     name: string;
@@ -410,35 +327,6 @@ declare class Instances {
     listTypes(params?: InstanceTypeListParams): Promise<InstanceType[]>;
 }
 
-declare class Crates {
-    private readonly transport;
-    constructor(transport: Transport);
-    list(params?: CrateListParams): Promise<Crate[]>;
-    create(params: CrateCreateParams): Promise<Crate>;
-    get(id: string): Promise<Crate>;
-    terminate(id: string): Promise<void>;
-}
-
-declare class Projects {
-    private readonly transport;
-    constructor(transport: Transport);
-    list(): Promise<Project[]>;
-    create(params: ProjectCreateParams): Promise<Project>;
-    get(id: string): Promise<Project>;
-    update(id: string, params: ProjectUpdateParams): Promise<Project>;
-    delete(id: string): Promise<void>;
-}
-
-declare class Workspaces {
-    private readonly transport;
-    constructor(transport: Transport);
-    list(): Promise<Workspace[]>;
-    create(params: WorkspaceCreateParams): Promise<Workspace>;
-    get(id: string): Promise<Workspace>;
-    update(id: string, params: WorkspaceUpdateParams): Promise<Workspace>;
-    delete(id: string): Promise<void>;
-}
-
 declare class Environments {
     private readonly transport;
     constructor(transport: Transport);
@@ -517,18 +405,49 @@ declare class Models {
     transcribe(params: TranscribeParams): Promise<Transcription>;
 }
 
+interface ChatCompletionsNamespace {
+    create(params: ChatCompletionParams): Promise<ChatCompletion | AsyncGenerator<Record<string, unknown>>>;
+}
+interface ChatNamespace {
+    completions: ChatCompletionsNamespace;
+}
+interface ImagesNamespace {
+    generate(params: ImageGenerationParams): Promise<ImageGeneration & {
+        save(path: string): Promise<void>;
+    }>;
+}
+interface SpeechNamespace {
+    create(params: TTSParams): Promise<Buffer>;
+}
+interface TranscriptionsNamespace {
+    create(params: TranscribeParams): Promise<Transcription>;
+}
+interface AudioNamespace {
+    speech: SpeechNamespace;
+    transcriptions: TranscriptionsNamespace;
+}
+interface VideosNamespace {
+    generate(params: VideoGenerationParams): Promise<VideoJob>;
+    getStatus(id: string): Promise<VideoJob>;
+    download(id: string): Promise<Buffer>;
+    generateAndSave(path: string, params: VideoSaveParams): Promise<VideoJob>;
+}
 declare class Runcrate {
     readonly instances: Instances;
-    readonly crates: Crates;
-    readonly workspaces: Workspaces;
     readonly environments: Environments;
-    /** @deprecated Use `workspaces` instead. */
-    readonly projects: Projects;
     readonly sshKeys: SSHKeys;
     readonly storage: Storage;
     readonly billing: Billing;
     readonly templates: Templates;
     readonly models: Models;
+    /** OpenAI-compatible chat namespace: `rc.chat.completions.create(...)` */
+    readonly chat: ChatNamespace;
+    /** OpenAI-compatible images namespace: `rc.images.generate(...)` */
+    readonly images: ImagesNamespace;
+    /** OpenAI-compatible audio namespace: `rc.audio.speech.create(...)`, `rc.audio.transcriptions.create(...)` */
+    readonly audio: AudioNamespace;
+    /** Video namespace: `rc.videos.generate(...)` */
+    readonly videos: VideosNamespace;
     constructor(config?: RuncrateConfig);
 }
 
@@ -575,4 +494,4 @@ declare class TimeoutError extends RuncrateError {
     constructor(message: string);
 }
 
-export { ApiError, AuthenticationError, BadRequestError, type Balance, type ChatChoice, type ChatCompletion, type ChatCompletionParams, type ChatMessage, type ChatUsage, ConflictError, ConnectionError, type Crate, type CrateCreateParams, type CrateListParams, type ImageData, type ImageGeneration, type ImageGenerationParams, type Instance, type InstanceCreateParams, type InstanceListParams, type InstanceStatus, type InstanceType, type InstanceTypeListParams, InsufficientCreditsError, InternalServerError, type ListMeta, NotFoundError, PaginatedResponse, PermissionDeniedError, type Project, type ProjectCreateParams, type ProjectUpdateParams, RateLimitError, Runcrate, type RuncrateConfig, RuncrateError, type SSHKey, type SSHKeyCreateParams, type StorageListParams, type StorageVolume, type TTSParams, type Template, type TemplateListParams, TimeoutError, type Transaction, type TransactionListParams, type TranscribeParams, type Transcription, UnprocessableEntityError, type UsageParams, type UsageSummary, type VideoGenerationParams, type VideoJob, type VideoSaveParams, Runcrate as default };
+export { ApiError, AuthenticationError, BadRequestError, type Balance, type ChatChoice, type ChatCompletion, type ChatCompletionParams, type ChatMessage, type ChatUsage, ConflictError, ConnectionError, type Environment, type EnvironmentCreateParams, type EnvironmentUpdateParams, type ImageData, type ImageGeneration, type ImageGenerationParams, type Instance, type InstanceCreateParams, type InstanceListParams, type InstanceStatus, type InstanceType, type InstanceTypeListParams, InsufficientCreditsError, InternalServerError, type ListMeta, NotFoundError, PaginatedResponse, PermissionDeniedError, RateLimitError, Runcrate, type RuncrateConfig, RuncrateError, type SSHKey, type SSHKeyCreateParams, type StorageListParams, type StorageVolume, type TTSParams, type Template, type TemplateListParams, TimeoutError, type Transaction, type TransactionListParams, type TranscribeParams, type Transcription, UnprocessableEntityError, type UsageParams, type UsageSummary, type VideoGenerationParams, type VideoJob, type VideoSaveParams, Runcrate as default };

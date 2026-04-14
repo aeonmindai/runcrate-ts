@@ -95,99 +95,57 @@ describe("Instances resource", () => {
   });
 });
 
-describe("Crates resource", () => {
-  it("lists crates", async () => {
-    const crates = [{ id: "c1", name: "app-1", status: "running" }];
-    mockFetch([{ body: { data: crates } }]);
+describe("Environments resource", () => {
+  it("lists environments", async () => {
+    const environments = [
+      { id: "e1", name: "main", isDefault: true },
+      { id: "e2", name: "staging", isDefault: false },
+    ];
+    mockFetch([{ body: { data: environments } }]);
     const rc = makeClient();
 
-    const result = await rc.crates.list();
-    expect(result).toEqual(crates);
+    const result = await rc.environments.list();
+    expect(result).toEqual(environments);
   });
 
-  it("creates a crate", async () => {
-    const crate = { id: "c1", name: "my-app", status: "provisioning" };
-    mockFetch([{ body: { data: crate } }]);
+  it("creates an environment", async () => {
+    const environment = { id: "e2", name: "staging", isDefault: false };
+    const { calls } = mockFetch([{ body: { data: environment } }]);
     const rc = makeClient();
 
-    const result = await rc.crates.create({
-      name: "my-app",
-      sshKeyId: "key_123",
-      template: "pytorch",
-    });
-    expect(result).toEqual(crate);
-  });
-
-  it("gets a crate by id", async () => {
-    const crate = { id: "c1", name: "app-1", status: "running" };
-    const { calls } = mockFetch([{ body: { data: crate } }]);
-    const rc = makeClient();
-
-    const result = await rc.crates.get("c1");
-    expect(result).toEqual(crate);
-    expect(calls[0]!.url).toContain("/api/v1/crates/c1");
-  });
-
-  it("terminates a crate", async () => {
-    const { calls } = mockFetch([{ status: 204 }]);
-    const rc = makeClient();
-
-    await rc.crates.terminate("c1");
-    expect(calls[0]!.init.method).toBe("DELETE");
-  });
-});
-
-describe("Projects resource", () => {
-  it("lists projects", async () => {
-    const projects = [{ id: "p1", name: "ML Research" }];
-    mockFetch([{ body: { data: projects } }]);
-    const rc = makeClient();
-
-    const result = await rc.projects.list();
-    expect(result).toEqual(projects);
-  });
-
-  it("creates a project", async () => {
-    const project = { id: "p1", name: "New Project" };
-    const { calls } = mockFetch([{ body: { data: project } }]);
-    const rc = makeClient();
-
-    const result = await rc.projects.create({
-      name: "New Project",
-      description: "My project",
-    });
-    expect(result).toEqual(project);
+    const result = await rc.environments.create({ name: "staging" });
+    expect(result).toEqual(environment);
     const body = JSON.parse(calls[0]!.init.body as string);
-    expect(body.name).toBe("New Project");
-    expect(body.description).toBe("My project");
+    expect(body.name).toBe("staging");
   });
 
-  it("gets a project by id", async () => {
-    const project = { id: "p1", name: "ML Research" };
-    mockFetch([{ body: { data: project } }]);
+  it("gets an environment by id", async () => {
+    const environment = { id: "e1", name: "main", isDefault: true };
+    const { calls } = mockFetch([{ body: { data: environment } }]);
     const rc = makeClient();
 
-    const result = await rc.projects.get("p1");
-    expect(result).toEqual(project);
+    const result = await rc.environments.get("e1");
+    expect(result).toEqual(environment);
+    expect(calls[0]!.url).toContain("/api/v1/environments/e1");
   });
 
-  it("updates a project", async () => {
-    const project = { id: "p1", name: "Updated" };
-    const { calls } = mockFetch([{ body: { data: project } }]);
+  it("updates an environment", async () => {
+    const environment = { id: "e2", name: "production", isDefault: false };
+    const { calls } = mockFetch([{ body: { data: environment } }]);
     const rc = makeClient();
 
-    const result = await rc.projects.update("p1", { name: "Updated" });
-    expect(result).toEqual(project);
+    const result = await rc.environments.update("e2", { name: "production" });
+    expect(result).toEqual(environment);
     expect(calls[0]!.init.method).toBe("PATCH");
   });
 
-  it("deletes a project", async () => {
+  it("deletes an environment", async () => {
     const { calls } = mockFetch([{ status: 204 }]);
     const rc = makeClient();
 
-    await rc.projects.delete("p1");
+    await rc.environments.delete("e2");
     expect(calls[0]!.init.method).toBe("DELETE");
-    expect(calls[0]!.url).toContain("/api/v1/projects/p1");
+    expect(calls[0]!.url).toContain("/api/v1/environments/e2");
   });
 });
 
