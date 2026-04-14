@@ -1,6 +1,6 @@
-# Runcrate TypeScript SDK
+# [Runcrate](https://runcrate.ai) TypeScript SDK
 
-Official TypeScript/JavaScript SDK for the Runcrate platform. Manage GPU instances and run model inference.
+Official TypeScript/JavaScript SDK for the [Runcrate](https://runcrate.ai) platform. Manage GPU instances and run model inference.
 
 - Zero runtime dependencies — native `fetch`
 - ESM + CJS dual output
@@ -29,7 +29,6 @@ const instance = await rc.instances.create({
   sshKeyId: 'key_abc123',
   gpuType: 'A100',
   gpuCount: 1,
-  template: 'ubuntu-cuda',
 });
 
 // Check balance
