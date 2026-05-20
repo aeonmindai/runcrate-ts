@@ -110,7 +110,7 @@ export class Runcrate {
     const customHeaders = config?.customHeaders ?? {};
     const environment = config?.environment;
 
-    // Infrastructure transport (runcrate.com)
+    // Infrastructure transport (runcrate.ai)
     const infraTransport = new Transport({
       baseUrl,
       apiKey,
