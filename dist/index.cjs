@@ -350,6 +350,12 @@ var Instances = class {
     });
     return data;
   }
+  /**
+   * Launch an instance. For unattended agent work, set `maxRuntimeMinutes` (5 to 10080) and
+   * `idleShutdownMinutes` (5 to 1440) so the instance stops on its own. Values outside those
+   * ranges are rejected with an `UnprocessableEntityError` (422). If the environment's monthly budget is
+   * reached, this throws an `InsufficientCreditsError` with `code` `"BUDGET_REACHED"`.
+   */
   async create(params) {
     const { data } = await this.transport.request({
       method: "POST",
@@ -362,6 +368,20 @@ var Instances = class {
     const { data } = await this.transport.request({
       method: "GET",
       path: `/api/v1/instances/${id}`
+    });
+    return data;
+  }
+  /**
+   * Change a starting or running instance's auto stop, by id or unique name. Returns the instance
+   * with its new `autoStopAt`. An out-of-range value throws an `UnprocessableEntityError` (422);
+   * a `ConflictError` (409) means the instance is not live, has
+   * no GPU for idle stop, or was launched before idle stop existed.
+   */
+  async update(id, params) {
+    const { data } = await this.transport.request({
+      method: "PATCH",
+      path: `/api/v1/instances/${encodeURIComponent(id)}`,
+      body: toSnakeCase(params)
     });
     return data;
   }
@@ -409,6 +429,11 @@ var Environments = class {
     });
     return data;
   }
+  /**
+   * Get an environment, including its monthly budget (`monthlyBudgetUsd`), spend so far this
+   * UTC month (`monthToDateUsd`) and what is left (`budgetRemainingUsd`). Budgets are read-only
+   * here: a workspace owner or admin sets them in the dashboard.
+   */
   async get(id) {
     const { data } = await this.transport.request({
       method: "GET",

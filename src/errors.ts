@@ -38,6 +38,11 @@ export class AuthenticationError extends ApiError {
   }
 }
 
+/**
+ * HTTP 402. `code` tells the cases apart: `"insufficient_credits"` when the workspace balance is
+ * too low, `"BUDGET_REACHED"` when a launch hits an environment's monthly budget, and
+ * `"budget_exceeded"` when an inference call hits it.
+ */
 export class InsufficientCreditsError extends ApiError {
   constructor(message: string, code: string, details?: Record<string, unknown>) {
     super(message, 402, code, details);

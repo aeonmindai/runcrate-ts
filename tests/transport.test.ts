@@ -158,6 +158,23 @@ describe("Transport", () => {
       ).rejects.toThrow(InsufficientCreditsError);
     });
 
+    it("keeps the BUDGET_REACHED code and message on a 402", async () => {
+      mockFetch([{
+        status: 402,
+        body: { error: { code: "BUDGET_REACHED", message: "Monthly budget for agents reached" } },
+      }]);
+      const transport = makeTransport({ maxRetries: 0 });
+
+      await expect(
+        transport.request({ method: "POST", path: "/api/v1/instances" }),
+      ).rejects.toMatchObject({
+        name: "InsufficientCreditsError",
+        statusCode: 402,
+        code: "BUDGET_REACHED",
+        message: "Monthly budget for agents reached",
+      });
+    });
+
     it("throws PermissionDeniedError on 403", async () => {
       mockFetch([{
         status: 403,
