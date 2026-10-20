@@ -21,6 +21,12 @@ export class Instances {
     return data;
   }
 
+  /**
+   * Launch an instance. For unattended agent work, set `maxRuntimeMinutes` (5 to 10080) and
+   * `idleShutdownMinutes` (5 to 1440) so the instance stops on its own. Values outside those
+   * ranges are rejected with a `BadRequestError`. If the environment's monthly budget is
+   * reached, this throws an `InsufficientCreditsError` with `code` `"BUDGET_REACHED"`.
+   */
   async create(params: InstanceCreateParams): Promise<Instance> {
     const { data } = await this.transport.request<Instance>({
       method: "POST",

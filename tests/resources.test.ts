@@ -52,6 +52,58 @@ describe("Instances resource", () => {
     expect(body.gpu_type).toBe("A100");
   });
 
+  it("sends guardrail params as snake_case fields", async () => {
+    const { calls } = mockFetch([{ body: { data: { id: "i1", name: "agent", status: "provisioning" } } }]);
+    const rc = makeClient();
+
+    await rc.instances.create({
+      name: "agent",
+      sshKeyId: "key_123",
+      maxRuntimeMinutes: 240,
+      idleShutdownMinutes: null,
+    });
+
+    const body = JSON.parse(calls[0]!.init.body as string);
+    expect(body.max_runtime_minutes).toBe(240);
+    expect(body.idle_shutdown_minutes).toBeNull();
+    expect(body).not.toHaveProperty("maxRuntimeMinutes");
+    expect(body).not.toHaveProperty("idleShutdownMinutes");
+  });
+
+  it("omits guardrail fields when the params are unset", async () => {
+    const { calls } = mockFetch([{ body: { data: { id: "i1", name: "gpu", status: "provisioning" } } }]);
+    const rc = makeClient();
+
+    await rc.instances.create({ name: "gpu", sshKeyId: "key_123", maxRuntimeMinutes: undefined });
+
+    const body = JSON.parse(calls[0]!.init.body as string);
+    expect(body).not.toHaveProperty("max_runtime_minutes");
+    expect(body).not.toHaveProperty("idle_shutdown_minutes");
+  });
+
+  it("returns guardrail fields from the server in camelCase", async () => {
+    mockFetch([{
+      body: {
+        data: {
+          id: "i1",
+          name: "agent",
+          status: "terminated",
+          max_runtime_minutes: 240,
+          idle_shutdown_minutes: 30,
+          auto_stop_at: "2026-10-20T14:00:00.000Z",
+          stop_reason: "max_runtime",
+        },
+      },
+    }]);
+    const rc = makeClient();
+
+    const result = await rc.instances.get("i1");
+    expect(result.maxRuntimeMinutes).toBe(240);
+    expect(result.idleShutdownMinutes).toBe(30);
+    expect(result.autoStopAt).toBe("2026-10-20T14:00:00.000Z");
+    expect(result.stopReason).toBe("max_runtime");
+  });
+
   it("gets an instance by id", async () => {
     const instance = { id: "i1", name: "gpu-1", status: "running", ip: "1.2.3.4" };
     const { calls } = mockFetch([{ body: { data: instance } }]);
@@ -127,6 +179,26 @@ describe("Environments resource", () => {
     const result = await rc.environments.get("e1");
     expect(result).toEqual(environment);
     expect(calls[0]!.url).toContain("/api/v1/environments/e1");
+  });
+
+  it("returns monthly budget fields in camelCase", async () => {
+    mockFetch([{
+      body: {
+        data: {
+          id: "e1",
+          name: "agents",
+          monthly_budget_usd: 500,
+          month_to_date_usd: 412.5,
+          budget_remaining_usd: 87.5,
+        },
+      },
+    }]);
+    const rc = makeClient();
+
+    const result = await rc.environments.get("e1");
+    expect(result.monthlyBudgetUsd).toBe(500);
+    expect(result.monthToDateUsd).toBe(412.5);
+    expect(result.budgetRemainingUsd).toBe(87.5);
   });
 
   it("updates an environment", async () => {

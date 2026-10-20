@@ -131,6 +131,28 @@ await rc.instances.terminate('instance-id');
 const types = await rc.instances.listTypes({ gpuType: 'A100' });
 ```
 
+#### Auto-stop for unattended work
+
+When an agent or script launches an instance, give it limits so it stops on its own:
+
+```typescript
+const instance = await rc.instances.create({
+  name: 'agent-job',
+  sshKeyId: 'key_abc123',
+  gpuType: 'A100',
+  maxRuntimeMinutes: 240,   // terminate 4 hours after it starts running (5 to 10080)
+  idleShutdownMinutes: 30,  // terminate after 30 idle minutes (5 to 1440)
+});
+
+const current = await rc.instances.get(instance.id);
+console.log(current.autoStopAt);  // ISO time the max runtime stops it, or null
+console.log(current.stopReason);  // 'max_runtime', 'idle', 'budget', ... or null
+```
+
+- `maxRuntimeMinutes`: the clock starts when the instance first becomes running, and an alert goes out 10 minutes before it stops.
+- `idleShutdownMinutes`: idle means GPU utilisation under 5% with no SSH session.
+- Omit either one, or pass `null`, for no limit. Values outside the ranges throw a `BadRequestError`.
+
 ### SSH Keys
 
 ```typescript
@@ -156,7 +178,12 @@ const environments = await rc.environments.list();
 const env = await rc.environments.create({ name: 'staging' });
 await rc.environments.update('env-id', { name: 'production' });
 await rc.environments.delete('env-id');
+
+// Monthly budget, read-only (null means no cap)
+const { monthlyBudgetUsd, monthToDateUsd, budgetRemainingUsd } = await rc.environments.get('env-id');
 ```
+
+A workspace owner or admin sets an environment's monthly budget in the dashboard, under Workspace settings. The API and this SDK can read it but never set it. At 100% of the budget, launches in that environment fail, running instances stop and inference calls with that environment's API keys are refused until the month ends or the budget is raised.
 
 ### Templates
 
@@ -181,7 +208,12 @@ const usage = await rc.billing.usage({ from: '2025-01-01', to: '2025-01-31' });
 ## Error Handling
 
 ```typescript
-import { NotFoundError, RateLimitError, AuthenticationError } from '@runcrate/sdk';
+import {
+  NotFoundError,
+  RateLimitError,
+  AuthenticationError,
+  InsufficientCreditsError,
+} from '@runcrate/sdk';
 
 try {
   await rc.instances.get('nonexistent');
@@ -189,12 +221,24 @@ try {
   if (err instanceof NotFoundError) {
     console.log('Instance not found');
   } else if (err instanceof RateLimitError) {
-    console.log('Rate limited — retry later');
+    console.log('Rate limited, retry later');
   } else if (err instanceof AuthenticationError) {
     console.log('Invalid API key');
   }
 }
+
+try {
+  await rc.instances.create({ name: 'agent-job', sshKeyId: 'key_abc123', gpuType: 'A100' });
+} catch (err) {
+  if (err instanceof InsufficientCreditsError && err.code === 'BUDGET_REACHED') {
+    console.log(err.message); // the environment's monthly budget is used up
+  } else if (err instanceof InsufficientCreditsError) {
+    console.log('Add credits to keep launching');
+  }
+}
 ```
+
+Every API error carries `statusCode`, `code` and `message`. A 402 has `code` `insufficient_credits` when the balance is too low, `BUDGET_REACHED` when a launch hits an environment's monthly budget, and `budget_exceeded` when an inference call hits it.
 
 ## Configuration
 

@@ -10,6 +10,7 @@ export type {
   InstanceStatus,
   InstanceType,
   InstanceTypeListParams,
+  InstanceStopReason,
   Environment,
   EnvironmentCreateParams,
   EnvironmentUpdateParams,

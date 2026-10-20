@@ -346,6 +346,12 @@ var Instances = class {
     });
     return data;
   }
+  /**
+   * Launch an instance. For unattended agent work, set `maxRuntimeMinutes` (5 to 10080) and
+   * `idleShutdownMinutes` (5 to 1440) so the instance stops on its own. Values outside those
+   * ranges are rejected with a `BadRequestError`. If the environment's monthly budget is
+   * reached, this throws an `InsufficientCreditsError` with `code` `"BUDGET_REACHED"`.
+   */
   async create(params) {
     const { data } = await this.transport.request({
       method: "POST",
@@ -405,6 +411,11 @@ var Environments = class {
     });
     return data;
   }
+  /**
+   * Get an environment, including its monthly budget (`monthlyBudgetUsd`), spend so far this
+   * UTC month (`monthToDateUsd`) and what is left (`budgetRemainingUsd`). Budgets are read-only
+   * here: a workspace owner or admin sets them in the dashboard.
+   */
   async get(id) {
     const { data } = await this.transport.request({
       method: "GET",

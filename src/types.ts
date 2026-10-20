@@ -21,6 +21,16 @@ export interface ListMeta {
 
 // ─── Instances ──────────────────────────────────────────────────────────────
 
+/** Why an instance stopped. `null` while it is still running or was never stopped. */
+export type InstanceStopReason =
+  | "user"
+  | "max_runtime"
+  | "idle"
+  | "budget"
+  | "low_balance"
+  | "failed"
+  | "system";
+
 export interface Instance {
   id: string;
   name: string;
@@ -37,6 +47,14 @@ export interface Instance {
   deployedAt?: string | null;
   createdAt?: string | null;
   updatedAt?: string | null;
+  /** Minutes after first reaching `running` when the instance is terminated. `null`: no limit. */
+  maxRuntimeMinutes?: number | null;
+  /** Minutes of GPU utilisation under 5% with no SSH session before termination. `null`: off. */
+  idleShutdownMinutes?: number | null;
+  /** ISO timestamp when the max runtime limit terminates the instance. `null`: no limit set. */
+  autoStopAt?: string | null;
+  /** Why the instance stopped. `null` while it has not stopped. */
+  stopReason?: InstanceStopReason | null;
   [key: string]: unknown;
 }
 
@@ -56,6 +74,21 @@ export interface InstanceCreateParams {
   storageId?: string;
   launchScript?: string;
   launchScriptBase64?: string;
+  /**
+   * Terminate the instance automatically after this many minutes of running.
+   * The clock starts when the instance first becomes `running`, and an alert goes out
+   * 10 minutes before it stops. Integer from 5 to 10080 (7 days). `null` or omitted: no limit.
+   *
+   * Recommended for unattended agent work, so a forgotten instance cannot run for days.
+   */
+  maxRuntimeMinutes?: number | null;
+  /**
+   * Terminate the instance when GPU utilisation stays under 5% with no SSH session for this
+   * many minutes. Integer from 5 to 1440 (24 hours). `null` or omitted: off.
+   *
+   * Recommended for unattended agent work, so an instance that finished its job stops billing.
+   */
+  idleShutdownMinutes?: number | null;
 }
 
 export interface InstanceStatus {
@@ -96,6 +129,17 @@ export interface Environment {
   isDefault?: boolean | null;
   createdAt?: string | null;
   updatedAt?: string | null;
+  /**
+   * Monthly spend cap for this environment in USD, set by a workspace owner or admin in the
+   * dashboard. `null`: no cap. At 100%, launches fail with a 402 `BUDGET_REACHED`, running
+   * instances stop and inference calls with this environment's API keys are refused until
+   * the month ends or the budget is raised. The API cannot set or change it.
+   */
+  monthlyBudgetUsd?: number | null;
+  /** Spend in this environment for the current UTC month, GPU instances plus inference, in USD. */
+  monthToDateUsd?: number;
+  /** USD left before the monthly budget is reached. `null` when there is no budget. */
+  budgetRemainingUsd?: number | null;
   [key: string]: unknown;
 }
 
