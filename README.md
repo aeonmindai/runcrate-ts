@@ -131,6 +131,44 @@ await rc.instances.terminate('instance-id');
 const types = await rc.instances.listTypes({ gpuType: 'A100' });
 ```
 
+### Schedules
+
+Start an instance or a job later: once at a time (`runAt`), or on a recurring 5-field `cron` in an IANA `timezone`. A schedule starts within about 2 minutes of its time, as you, in the environment it was created in. Always set `spec.maxRuntimeMinutes` so every scheduled launch stops on its own.
+
+```typescript
+// Every night at 02:00 London time, run a job
+const nightly = await rc.schedules.create({
+  kind: 'job',
+  cron: '0 2 * * *',
+  timezone: 'Europe/London',
+  name: 'nightly-train',
+  spec: {
+    command: 'python train.py',
+    gpuType: 'H100',
+    maxRuntimeMinutes: 120,
+    env: { HF_TOKEN: process.env.HF_TOKEN! },
+  },
+});
+console.log(nightly.nextRunAt);
+
+// Once, tomorrow morning, launch an instance
+await rc.schedules.create({
+  kind: 'instance',
+  runAt: new Date('2026-10-21T09:00:00Z'),
+  spec: { name: 'eval-box', gpuType: 'A100', maxRuntimeMinutes: 60 },
+});
+
+const schedules = await rc.schedules.list();
+const schedule = await rc.schedules.get(nightly.id);
+await rc.schedules.update(nightly.id, { enabled: false }); // pause
+await rc.schedules.update(nightly.id, { enabled: true });  // resume
+await rc.schedules.update(nightly.id, { cron: '0 3 * * 1-5' });
+const { job } = await rc.schedules.runNow(nightly.id);     // launch now, keeps the schedule
+await rc.schedules.delete(nightly.id);
+```
+
+Pass exactly one of `runAt` or `cron`. Recurring runs are at least 15 minutes apart, a one-off is at most 365 days ahead, and you can have 50 schedules per environment and 200 per workspace. Env values are write-only: a returned `spec` lists their names in `envKeys`, and an update with a new `spec` replaces the whole spec, so send env values again. `overlap: 'skip'` (the default) skips a recurring run while the previous one is still live. `runNow` throws an `InsufficientCreditsError` with `code` `'BUDGET_REACHED'` when the environment's monthly budget is reached. Each run launches as `runAs`, the person who created the schedule or last changed its spec or timing or resumed it, with `runAsCredential` (`'user'`, `'api_key'` or `'agent'`). If that API key is revoked or the agent sign-in ends, the schedule pauses with `lastStatus` `'credential_revoked'`.
+
 #### Auto-stop for unattended work
 
 When an agent or script launches an instance, give it limits so it stops on its own:

@@ -139,6 +139,187 @@ export interface InstanceTypeListParams {
   gpuCount?: number;
 }
 
+// ─── Schedules ──────────────────────────────────────────────────────────────
+
+/** What a schedule launches. */
+export type ScheduleKind = "instance" | "job";
+
+/**
+ * Recurring schedules only: `"skip"` (default) skips a run while the previous run is still live,
+ * `"allow"` launches anyway.
+ */
+export type ScheduleOverlap = "skip" | "allow";
+
+/**
+ * How the most recent run went. `null` until the schedule first runs. `"credential_revoked"`: the
+ * schedule was paused because the API key it runs with was revoked, deactivated or moved, or the
+ * agent sign-in it runs with ended.
+ */
+export type ScheduleRunStatus =
+  | "launched"
+  | "failed"
+  | "skipped_budget"
+  | "skipped_overlap"
+  | "no_access"
+  | "credential_revoked";
+
+/** What a schedule's runs launch with: a person's sign-in, an API key, or an agent sign-in. */
+export type ScheduleRunAsCredential = "user" | "api_key" | "agent";
+
+/** A job to run: the same fields as creating a job. */
+export interface ScheduleJobSpec {
+  /** Shell command to run on the machine. */
+  command: string;
+  gpuType: string;
+  /** Whole minutes from 1 to 1440. The job stops after this long. */
+  maxRuntimeMinutes: number;
+  gpuCount?: number;
+  template?: string;
+  image?: string;
+  /** Environment variables for the command. Names are sent exactly as given. Write-only. */
+  env?: Record<string, string>;
+  storageId?: string;
+  name?: string;
+  region?: string;
+}
+
+/** An instance to launch: the same fields as creating an instance, with `maxRuntimeMinutes` required. */
+export interface ScheduleInstanceSpec {
+  name: string;
+  /** Required for a schedule, so a scheduled instance always stops on its own. Whole minutes. */
+  maxRuntimeMinutes: number;
+  gpuType?: string;
+  instanceTypeId?: string;
+  gpuCount?: number;
+  region?: string;
+  template?: string;
+  sshKeyId?: string;
+  storageId?: string;
+  /** Write-only. */
+  envVars?: Array<{ key: string; value: string }>;
+  startupCommands?: string[];
+  launchScript?: string;
+  launchScriptBase64?: string;
+  cpuCores?: number;
+  memory?: number;
+  storage?: number;
+  idleShutdownMinutes?: number;
+}
+
+/** What to launch, discriminated on `kind`. */
+export type ScheduleSpec =
+  | { kind: "instance"; spec: ScheduleInstanceSpec }
+  | { kind: "job"; spec: ScheduleJobSpec };
+
+/** A job spec as returned: env values are never returned, only their names in `envKeys`. */
+export type ScheduledJobSpec = Omit<ScheduleJobSpec, "env"> & {
+  envKeys?: string[];
+  [key: string]: unknown;
+};
+
+/** An instance spec as returned: env values are never returned, only their names in `envKeys`. */
+export type ScheduledInstanceSpec = Omit<ScheduleInstanceSpec, "envVars"> & {
+  envKeys?: string[];
+  [key: string]: unknown;
+};
+
+interface ScheduleBase {
+  id: string;
+  /** 1 to 63 characters. */
+  name: string;
+  environmentId: string;
+  /** The user who created the schedule. */
+  createdBy: string;
+  /**
+   * The user each run launches as: whoever created the schedule or last changed its spec or
+   * timing, or resumed it.
+   */
+  runAs: string | null;
+  /** What the runs launch with. */
+  runAsCredential: ScheduleRunAsCredential;
+  /** Read-only here: change it through `spec`. */
+  maxRuntimeMinutes: number;
+  /** One-off: the time it runs (ISO). `null` for a recurring schedule. */
+  runAt: string | null;
+  /** Recurring: a 5-field cron expression. `null` for a one-off. */
+  cron: string | null;
+  /** IANA timezone the cron is read in, `"UTC"` by default. */
+  timezone: string;
+  overlap: ScheduleOverlap;
+  enabled: boolean;
+  /** `null` when disabled or a one-off that has already run. */
+  nextRunAt: string | null;
+  lastRunAt: string | null;
+  lastStatus: ScheduleRunStatus | null;
+  lastError: string | null;
+  lastInstanceId: string | null;
+  lastJobId: string | null;
+  runCount: number;
+  createdAt: string;
+  updatedAt: string;
+  [key: string]: unknown;
+}
+
+/** A schedule that launches an instance or runs a job, once or on a cron. */
+export type Schedule =
+  | (ScheduleBase & { kind: "instance"; spec: ScheduledInstanceSpec })
+  | (ScheduleBase & { kind: "job"; spec: ScheduledJobSpec });
+
+/**
+ * When a schedule runs: exactly one of `runAt` (once, at least a minute ahead and at most 365 days)
+ * or `cron` (recurring, occurrences at least 15 minutes apart).
+ */
+export type ScheduleTiming =
+  | { runAt: string | Date; cron?: never }
+  | { cron: string; runAt?: never };
+
+export type CreateScheduleParams = ScheduleSpec &
+  ScheduleTiming & {
+    /** IANA timezone, e.g. `"Europe/London"`. Default `"UTC"`. */
+    timezone?: string;
+    overlap?: ScheduleOverlap;
+    /** Defaults to the spec's name, or `"<kind>-schedule"`. */
+    name?: string;
+    enabled?: boolean;
+  };
+
+/**
+ * Any of these. `runAt` makes the schedule a one-off (clears `cron`), `cron` makes it recurring
+ * (clears `runAt`). `spec` replaces the whole spec, so resend env values.
+ */
+export type UpdateScheduleParams = (
+  | { runAt?: never; cron?: never }
+  | { runAt: string | Date; cron?: never }
+  | { cron: string; runAt?: never }
+) & {
+  /** `false` pauses, `true` resumes. */
+  enabled?: boolean;
+  timezone?: string;
+  overlap?: ScheduleOverlap;
+  name?: string;
+  spec?: ScheduleInstanceSpec | ScheduleJobSpec;
+};
+
+export interface ScheduleDeleteResult {
+  id: string;
+  deleted: true;
+}
+
+/** The job a run started. */
+export interface ScheduledJob {
+  id: string;
+  name: string;
+  status: string;
+  [key: string]: unknown;
+}
+
+/** What `runNow` started: `instance` for an instance schedule, `job` for a job schedule. */
+export interface RunNowResult {
+  schedule: Schedule;
+  instance?: Instance;
+  job?: ScheduledJob;
+}
+
 // ─── Environments ───────────────────────────────────────────────────────────
 
 export interface Environment {
