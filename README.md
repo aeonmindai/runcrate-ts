@@ -150,7 +150,7 @@ console.log(current.stopReason);  // 'max_runtime', 'idle', 'budget', ... or nul
 ```
 
 - `maxRuntimeMinutes`: the clock starts when the instance first becomes running, and an alert goes out 10 minutes before it stops.
-- `idleShutdownMinutes`: idle means GPU utilisation under 5% with no SSH session.
+- `idleShutdownMinutes`: idle means GPU utilisation under 5% with nobody connected (SSH, web terminal or editor); GPU instances only.
 - Omit either one, or pass `null`, for no limit. Values outside the ranges throw a `BadRequestError`.
 
 ### SSH Keys

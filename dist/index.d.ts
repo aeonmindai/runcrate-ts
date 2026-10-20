@@ -33,7 +33,7 @@ interface Instance {
     updatedAt?: string | null;
     /** Minutes after first reaching `running` when the instance is terminated. `null`: no limit. */
     maxRuntimeMinutes?: number | null;
-    /** Minutes of GPU utilisation under 5% with no SSH session before termination. `null`: off. */
+    /** Minutes of GPU utilisation under 5% with nobody connected before termination. `null`: off. */
     idleShutdownMinutes?: number | null;
     /** ISO timestamp when the max runtime limit terminates the instance. `null`: no limit set. */
     autoStopAt?: string | null;
@@ -66,8 +66,9 @@ interface InstanceCreateParams {
      */
     maxRuntimeMinutes?: number | null;
     /**
-     * Terminate the instance when GPU utilisation stays under 5% with no SSH session for this
-     * many minutes. Integer from 5 to 1440 (24 hours). `null` or omitted: off.
+     * Terminate the instance when GPU utilisation stays under 5% with nobody connected (SSH, web
+     * terminal or editor) for this many minutes. Integer from 5 to 1440 (24 hours). GPU instances
+     * only. `null` or omitted: off.
      *
      * Recommended for unattended agent work, so an instance that finished its job stops billing.
      */
