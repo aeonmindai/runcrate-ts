@@ -6,6 +6,7 @@ import type {
   InstanceStatus,
   InstanceType,
   InstanceTypeListParams,
+  InstanceUpdateParams,
 } from "../types.js";
 import { removeUndefined, toSnakeCase } from "../util.js";
 
@@ -21,6 +22,12 @@ export class Instances {
     return data;
   }
 
+  /**
+   * Launch an instance. For unattended agent work, set `maxRuntimeMinutes` (5 to 10080) and
+   * `idleShutdownMinutes` (5 to 1440) so the instance stops on its own. Values outside those
+   * ranges are rejected with an `UnprocessableEntityError` (422). If the environment's monthly budget is
+   * reached, this throws an `InsufficientCreditsError` with `code` `"BUDGET_REACHED"`.
+   */
   async create(params: InstanceCreateParams): Promise<Instance> {
     const { data } = await this.transport.request<Instance>({
       method: "POST",
@@ -34,6 +41,21 @@ export class Instances {
     const { data } = await this.transport.request<Instance>({
       method: "GET",
       path: `/api/v1/instances/${id}`,
+    });
+    return data;
+  }
+
+  /**
+   * Change a starting or running instance's auto stop, by id or unique name. Returns the instance
+   * with its new `autoStopAt`. An out-of-range value throws an `UnprocessableEntityError` (422);
+   * a `ConflictError` (409) means the instance is not live, has
+   * no GPU for idle stop, or was launched before idle stop existed.
+   */
+  async update(id: string, params: InstanceUpdateParams): Promise<Instance> {
+    const { data } = await this.transport.request<Instance>({
+      method: "PATCH",
+      path: `/api/v1/instances/${encodeURIComponent(id)}`,
+      body: toSnakeCase(params),
     });
     return data;
   }

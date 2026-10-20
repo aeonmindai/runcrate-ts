@@ -13,6 +13,8 @@ interface ListMeta {
     hasMore?: boolean | null;
     total?: number | null;
 }
+/** Why an instance stopped. `null` while it is still running or was never stopped. */
+type InstanceStopReason = "user" | "max_runtime" | "idle" | "budget" | "low_balance" | "failed" | "system";
 interface Instance {
     id: string;
     name: string;
@@ -29,6 +31,14 @@ interface Instance {
     deployedAt?: string | null;
     createdAt?: string | null;
     updatedAt?: string | null;
+    /** Minutes after first reaching `running` when the instance is terminated. `null`: no limit. */
+    maxRuntimeMinutes?: number | null;
+    /** Minutes of GPU utilisation under 5% with nobody connected before termination. `null`: off. */
+    idleShutdownMinutes?: number | null;
+    /** ISO timestamp when the max runtime limit terminates the instance. `null`: no limit set. */
+    autoStopAt?: string | null;
+    /** Why the instance stopped. `null` while it has not stopped. */
+    stopReason?: InstanceStopReason | null;
     [key: string]: unknown;
 }
 interface InstanceCreateParams {
@@ -47,6 +57,38 @@ interface InstanceCreateParams {
     storageId?: string;
     launchScript?: string;
     launchScriptBase64?: string;
+    /**
+     * Terminate the instance automatically after this many minutes of running.
+     * The clock starts when the instance first becomes `running`, and an alert goes out
+     * 10 minutes before it stops. Integer from 5 to 10080 (7 days). `null` or omitted: no limit.
+     *
+     * Recommended for unattended agent work, so a forgotten instance cannot run for days.
+     */
+    maxRuntimeMinutes?: number | null;
+    /**
+     * Terminate the instance when GPU utilisation stays under 5% with nobody connected (SSH, web
+     * terminal or editor) for this many minutes. Integer from 5 to 1440 (24 hours). GPU instances
+     * only. `null` or omitted: off.
+     *
+     * Recommended for unattended agent work, so an instance that finished its job stops billing.
+     */
+    idleShutdownMinutes?: number | null;
+}
+/**
+ * A change to a starting or running instance's auto stop. A field left out keeps its value;
+ * `null` turns that limit off. Pass at least one.
+ */
+interface InstanceUpdateParams {
+    /**
+     * Total minutes the instance may run, counted from when it started running (5 to 10080). A
+     * change never stops it sooner than 2 minutes from now. Extend it before a long job.
+     */
+    maxRuntimeMinutes?: number | null;
+    /**
+     * Minutes of GPU utilisation under 5% with nobody connected before termination (5 to 1440).
+     * GPU instances launched with idle stop support only.
+     */
+    idleShutdownMinutes?: number | null;
 }
 interface InstanceStatus {
     id: string;
@@ -80,6 +122,17 @@ interface Environment {
     isDefault?: boolean | null;
     createdAt?: string | null;
     updatedAt?: string | null;
+    /**
+     * Monthly spend cap for this environment in USD, set by a workspace owner or admin in the
+     * dashboard. `null`: no cap. At 100%, launches fail with a 402 `BUDGET_REACHED`, running
+     * instances stop and inference calls with this environment's API keys are refused until
+     * the month ends or the budget is raised. The API cannot set or change it.
+     */
+    monthlyBudgetUsd?: number | null;
+    /** Spend in this environment for the current UTC month, GPU instances plus inference, in USD. */
+    monthToDateUsd?: number;
+    /** USD left before the monthly budget is reached. `null` when there is no budget. */
+    budgetRemainingUsd?: number | null;
     [key: string]: unknown;
 }
 interface EnvironmentCreateParams {
@@ -320,8 +373,21 @@ declare class Instances {
     private readonly transport;
     constructor(transport: Transport);
     list(params?: InstanceListParams): Promise<Instance[]>;
+    /**
+     * Launch an instance. For unattended agent work, set `maxRuntimeMinutes` (5 to 10080) and
+     * `idleShutdownMinutes` (5 to 1440) so the instance stops on its own. Values outside those
+     * ranges are rejected with an `UnprocessableEntityError` (422). If the environment's monthly budget is
+     * reached, this throws an `InsufficientCreditsError` with `code` `"BUDGET_REACHED"`.
+     */
     create(params: InstanceCreateParams): Promise<Instance>;
     get(id: string): Promise<Instance>;
+    /**
+     * Change a starting or running instance's auto stop, by id or unique name. Returns the instance
+     * with its new `autoStopAt`. An out-of-range value throws an `UnprocessableEntityError` (422);
+     * a `ConflictError` (409) means the instance is not live, has
+     * no GPU for idle stop, or was launched before idle stop existed.
+     */
+    update(id: string, params: InstanceUpdateParams): Promise<Instance>;
     terminate(id: string): Promise<void>;
     getStatus(id: string): Promise<InstanceStatus>;
     listTypes(params?: InstanceTypeListParams): Promise<InstanceType[]>;
@@ -332,6 +398,11 @@ declare class Environments {
     constructor(transport: Transport);
     list(): Promise<Environment[]>;
     create(params: EnvironmentCreateParams): Promise<Environment>;
+    /**
+     * Get an environment, including its monthly budget (`monthlyBudgetUsd`), spend so far this
+     * UTC month (`monthToDateUsd`) and what is left (`budgetRemainingUsd`). Budgets are read-only
+     * here: a workspace owner or admin sets them in the dashboard.
+     */
     get(id: string): Promise<Environment>;
     update(id: string, params: EnvironmentUpdateParams): Promise<Environment>;
     delete(id: string): Promise<void>;
@@ -466,6 +537,11 @@ declare class BadRequestError extends ApiError {
 declare class AuthenticationError extends ApiError {
     constructor(message: string, code: string, details?: Record<string, unknown>);
 }
+/**
+ * HTTP 402. `code` tells the cases apart: `"insufficient_credits"` when the workspace balance is
+ * too low, `"BUDGET_REACHED"` when a launch hits an environment's monthly budget, and
+ * `"budget_exceeded"` when an inference call hits it.
+ */
 declare class InsufficientCreditsError extends ApiError {
     constructor(message: string, code: string, details?: Record<string, unknown>);
 }
@@ -494,4 +570,4 @@ declare class TimeoutError extends RuncrateError {
     constructor(message: string);
 }
 
-export { ApiError, AuthenticationError, BadRequestError, type Balance, type ChatChoice, type ChatCompletion, type ChatCompletionParams, type ChatMessage, type ChatUsage, ConflictError, ConnectionError, type Environment, type EnvironmentCreateParams, type EnvironmentUpdateParams, type ImageData, type ImageGeneration, type ImageGenerationParams, type Instance, type InstanceCreateParams, type InstanceListParams, type InstanceStatus, type InstanceType, type InstanceTypeListParams, InsufficientCreditsError, InternalServerError, type ListMeta, NotFoundError, PaginatedResponse, PermissionDeniedError, RateLimitError, Runcrate, type RuncrateConfig, RuncrateError, type SSHKey, type SSHKeyCreateParams, type StorageListParams, type StorageVolume, type TTSParams, type Template, type TemplateListParams, TimeoutError, type Transaction, type TransactionListParams, type TranscribeParams, type Transcription, UnprocessableEntityError, type UsageParams, type UsageSummary, type VideoGenerationParams, type VideoJob, type VideoSaveParams, Runcrate as default };
+export { ApiError, AuthenticationError, BadRequestError, type Balance, type ChatChoice, type ChatCompletion, type ChatCompletionParams, type ChatMessage, type ChatUsage, ConflictError, ConnectionError, type Environment, type EnvironmentCreateParams, type EnvironmentUpdateParams, type ImageData, type ImageGeneration, type ImageGenerationParams, type Instance, type InstanceCreateParams, type InstanceListParams, type InstanceStatus, type InstanceStopReason, type InstanceType, type InstanceTypeListParams, type InstanceUpdateParams, InsufficientCreditsError, InternalServerError, type ListMeta, NotFoundError, PaginatedResponse, PermissionDeniedError, RateLimitError, Runcrate, type RuncrateConfig, RuncrateError, type SSHKey, type SSHKeyCreateParams, type StorageListParams, type StorageVolume, type TTSParams, type Template, type TemplateListParams, TimeoutError, type Transaction, type TransactionListParams, type TranscribeParams, type Transcription, UnprocessableEntityError, type UsageParams, type UsageSummary, type VideoGenerationParams, type VideoJob, type VideoSaveParams, Runcrate as default };

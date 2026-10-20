@@ -26,6 +26,11 @@ export class Environments {
     return data;
   }
 
+  /**
+   * Get an environment, including its monthly budget (`monthlyBudgetUsd`), spend so far this
+   * UTC month (`monthToDateUsd`) and what is left (`budgetRemainingUsd`). Budgets are read-only
+   * here: a workspace owner or admin sets them in the dashboard.
+   */
   async get(id: string): Promise<Environment> {
     const { data } = await this.transport.request<Environment>({
       method: "GET",
