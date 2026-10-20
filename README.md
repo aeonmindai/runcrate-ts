@@ -149,6 +149,14 @@ console.log(current.autoStopAt);  // ISO time the max runtime stops it, or null
 console.log(current.stopReason);  // 'max_runtime', 'idle', 'budget', ... or null
 ```
 
+Change the limits on a running instance, for example to extend before a long job. Max runtime
+counts from when it started, so pass the total; a field left out keeps its value and `null`
+turns it off:
+
+```typescript
+await rc.instances.update(instance.id, { maxRuntimeMinutes: 480, idleShutdownMinutes: null });
+```
+
 - `maxRuntimeMinutes`: the clock starts when the instance first becomes running, and an alert goes out 10 minutes before it stops.
 - `idleShutdownMinutes`: idle means GPU utilisation under 5% with nobody connected (SSH, web terminal or editor); GPU instances only.
 - Omit either one, or pass `null`, for no limit. Values outside the ranges throw a `BadRequestError`.

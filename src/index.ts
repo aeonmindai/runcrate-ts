@@ -6,6 +6,7 @@ export type {
   ListMeta,
   Instance,
   InstanceCreateParams,
+  InstanceUpdateParams,
   InstanceListParams,
   InstanceStatus,
   InstanceType,

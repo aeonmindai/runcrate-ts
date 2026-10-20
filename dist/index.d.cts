@@ -74,6 +74,22 @@ interface InstanceCreateParams {
      */
     idleShutdownMinutes?: number | null;
 }
+/**
+ * A change to a starting or running instance's auto stop. A field left out keeps its value;
+ * `null` turns that limit off. Pass at least one.
+ */
+interface InstanceUpdateParams {
+    /**
+     * Total minutes the instance may run, counted from when it started running (5 to 10080). A
+     * change never stops it sooner than 2 minutes from now. Extend it before a long job.
+     */
+    maxRuntimeMinutes?: number | null;
+    /**
+     * Minutes of GPU utilisation under 5% with nobody connected before termination (5 to 1440).
+     * GPU instances launched with idle stop support only.
+     */
+    idleShutdownMinutes?: number | null;
+}
 interface InstanceStatus {
     id: string;
     status: string;
@@ -365,6 +381,12 @@ declare class Instances {
      */
     create(params: InstanceCreateParams): Promise<Instance>;
     get(id: string): Promise<Instance>;
+    /**
+     * Change a starting or running instance's auto stop, by id or unique name. Returns the instance
+     * with its new `autoStopAt`. Throws a `ConflictError` (409) when the instance is not live, has
+     * no GPU for idle stop, or was launched before idle stop existed.
+     */
+    update(id: string, params: InstanceUpdateParams): Promise<Instance>;
     terminate(id: string): Promise<void>;
     getStatus(id: string): Promise<InstanceStatus>;
     listTypes(params?: InstanceTypeListParams): Promise<InstanceType[]>;
@@ -547,4 +569,4 @@ declare class TimeoutError extends RuncrateError {
     constructor(message: string);
 }
 
-export { ApiError, AuthenticationError, BadRequestError, type Balance, type ChatChoice, type ChatCompletion, type ChatCompletionParams, type ChatMessage, type ChatUsage, ConflictError, ConnectionError, type Environment, type EnvironmentCreateParams, type EnvironmentUpdateParams, type ImageData, type ImageGeneration, type ImageGenerationParams, type Instance, type InstanceCreateParams, type InstanceListParams, type InstanceStatus, type InstanceStopReason, type InstanceType, type InstanceTypeListParams, InsufficientCreditsError, InternalServerError, type ListMeta, NotFoundError, PaginatedResponse, PermissionDeniedError, RateLimitError, Runcrate, type RuncrateConfig, RuncrateError, type SSHKey, type SSHKeyCreateParams, type StorageListParams, type StorageVolume, type TTSParams, type Template, type TemplateListParams, TimeoutError, type Transaction, type TransactionListParams, type TranscribeParams, type Transcription, UnprocessableEntityError, type UsageParams, type UsageSummary, type VideoGenerationParams, type VideoJob, type VideoSaveParams, Runcrate as default };
+export { ApiError, AuthenticationError, BadRequestError, type Balance, type ChatChoice, type ChatCompletion, type ChatCompletionParams, type ChatMessage, type ChatUsage, ConflictError, ConnectionError, type Environment, type EnvironmentCreateParams, type EnvironmentUpdateParams, type ImageData, type ImageGeneration, type ImageGenerationParams, type Instance, type InstanceCreateParams, type InstanceListParams, type InstanceStatus, type InstanceStopReason, type InstanceType, type InstanceTypeListParams, type InstanceUpdateParams, InsufficientCreditsError, InternalServerError, type ListMeta, NotFoundError, PaginatedResponse, PermissionDeniedError, RateLimitError, Runcrate, type RuncrateConfig, RuncrateError, type SSHKey, type SSHKeyCreateParams, type StorageListParams, type StorageVolume, type TTSParams, type Template, type TemplateListParams, TimeoutError, type Transaction, type TransactionListParams, type TranscribeParams, type Transcription, UnprocessableEntityError, type UsageParams, type UsageSummary, type VideoGenerationParams, type VideoJob, type VideoSaveParams, Runcrate as default };

@@ -92,6 +92,23 @@ export interface InstanceCreateParams {
   idleShutdownMinutes?: number | null;
 }
 
+/**
+ * A change to a starting or running instance's auto stop. A field left out keeps its value;
+ * `null` turns that limit off. Pass at least one.
+ */
+export interface InstanceUpdateParams {
+  /**
+   * Total minutes the instance may run, counted from when it started running (5 to 10080). A
+   * change never stops it sooner than 2 minutes from now. Extend it before a long job.
+   */
+  maxRuntimeMinutes?: number | null;
+  /**
+   * Minutes of GPU utilisation under 5% with nobody connected before termination (5 to 1440).
+   * GPU instances launched with idle stop support only.
+   */
+  idleShutdownMinutes?: number | null;
+}
+
 export interface InstanceStatus {
   id: string;
   status: string;

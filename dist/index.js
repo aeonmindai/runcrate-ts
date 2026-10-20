@@ -367,6 +367,19 @@ var Instances = class {
     });
     return data;
   }
+  /**
+   * Change a starting or running instance's auto stop, by id or unique name. Returns the instance
+   * with its new `autoStopAt`. Throws a `ConflictError` (409) when the instance is not live, has
+   * no GPU for idle stop, or was launched before idle stop existed.
+   */
+  async update(id, params) {
+    const { data } = await this.transport.request({
+      method: "PATCH",
+      path: `/api/v1/instances/${encodeURIComponent(id)}`,
+      body: toSnakeCase(params)
+    });
+    return data;
+  }
   async terminate(id) {
     await this.transport.request({
       method: "DELETE",

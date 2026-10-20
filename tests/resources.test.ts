@@ -70,6 +70,21 @@ describe("Instances resource", () => {
     expect(body).not.toHaveProperty("idleShutdownMinutes");
   });
 
+  it("update sends only the given auto stop fields as a PATCH, null turning one off", async () => {
+    const { calls } = mockFetch([
+      { body: { data: { id: "i1", name: "train run", max_runtime_minutes: 480, idle_shutdown_minutes: null, auto_stop_at: "2026-10-20T18:00:00Z" } } },
+    ]);
+    const rc = makeClient();
+
+    const inst = await rc.instances.update("train run", { maxRuntimeMinutes: 480, idleShutdownMinutes: null });
+
+    expect(calls[0]!.init.method).toBe("PATCH");
+    expect(String(calls[0]!.url)).toContain("/api/v1/instances/train%20run");
+    const body = JSON.parse(calls[0]!.init.body as string);
+    expect(body).toEqual({ max_runtime_minutes: 480, idle_shutdown_minutes: null });
+    expect(inst.autoStopAt).toBe("2026-10-20T18:00:00Z");
+  });
+
   it("omits guardrail fields when the params are unset", async () => {
     const { calls } = mockFetch([{ body: { data: { id: "i1", name: "gpu", status: "provisioning" } } }]);
     const rc = makeClient();
