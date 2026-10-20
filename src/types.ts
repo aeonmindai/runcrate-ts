@@ -99,13 +99,21 @@ export type ScheduleKind = "instance" | "job";
  */
 export type ScheduleOverlap = "skip" | "allow";
 
-/** How the most recent run went. `null` until the schedule first runs. */
+/**
+ * How the most recent run went. `null` until the schedule first runs. `"credential_revoked"`: the
+ * schedule was paused because the API key it runs with was revoked, deactivated or moved, or the
+ * agent sign-in it runs with ended.
+ */
 export type ScheduleRunStatus =
   | "launched"
   | "failed"
   | "skipped_budget"
   | "skipped_overlap"
-  | "no_access";
+  | "no_access"
+  | "credential_revoked";
+
+/** What a schedule's runs launch with: a person's sign-in, an API key, or an agent sign-in. */
+export type ScheduleRunAsCredential = "user" | "api_key" | "agent";
 
 /** A job to run: the same fields as creating a job. */
 export interface ScheduleJobSpec {
@@ -169,8 +177,15 @@ interface ScheduleBase {
   /** 1 to 63 characters. */
   name: string;
   environmentId: string;
-  /** The user the schedule launches as. */
+  /** The user who created the schedule. */
   createdBy: string;
+  /**
+   * The user each run launches as: whoever created the schedule or last changed its spec or
+   * timing, or resumed it.
+   */
+  runAs: string | null;
+  /** What the runs launch with. */
+  runAsCredential: ScheduleRunAsCredential;
   /** Read-only here: change it through `spec`. */
   maxRuntimeMinutes: number;
   /** One-off: the time it runs (ISO). `null` for a recurring schedule. */

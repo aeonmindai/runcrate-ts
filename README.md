@@ -167,7 +167,7 @@ const { job } = await rc.schedules.runNow(nightly.id);     // launch now, keeps 
 await rc.schedules.delete(nightly.id);
 ```
 
-Pass exactly one of `runAt` or `cron`. Recurring runs are at least 15 minutes apart, a one-off is at most 365 days ahead, and a workspace can have 50 schedules. Env values are write-only: a returned `spec` lists their names in `envKeys`, and an update with a new `spec` replaces the whole spec, so send env values again. `overlap: 'skip'` (the default) skips a recurring run while the previous one is still live. `runNow` throws an `InsufficientCreditsError` with `code` `'BUDGET_REACHED'` when the environment's monthly budget is reached.
+Pass exactly one of `runAt` or `cron`. Recurring runs are at least 15 minutes apart, a one-off is at most 365 days ahead, and you can have 50 schedules per environment and 200 per workspace. Env values are write-only: a returned `spec` lists their names in `envKeys`, and an update with a new `spec` replaces the whole spec, so send env values again. `overlap: 'skip'` (the default) skips a recurring run while the previous one is still live. `runNow` throws an `InsufficientCreditsError` with `code` `'BUDGET_REACHED'` when the environment's monthly budget is reached. Each run launches as `runAs`, the person who created the schedule or last changed its spec or timing or resumed it, with `runAsCredential` (`'user'`, `'api_key'` or `'agent'`). If that API key is revoked or the agent sign-in ends, the schedule pauses with `lastStatus` `'credential_revoked'`.
 
 ### SSH Keys
 

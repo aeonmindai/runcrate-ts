@@ -81,8 +81,14 @@ type ScheduleKind = "instance" | "job";
  * `"allow"` launches anyway.
  */
 type ScheduleOverlap = "skip" | "allow";
-/** How the most recent run went. `null` until the schedule first runs. */
-type ScheduleRunStatus = "launched" | "failed" | "skipped_budget" | "skipped_overlap" | "no_access";
+/**
+ * How the most recent run went. `null` until the schedule first runs. `"credential_revoked"`: the
+ * schedule was paused because the API key it runs with was revoked, deactivated or moved, or the
+ * agent sign-in it runs with ended.
+ */
+type ScheduleRunStatus = "launched" | "failed" | "skipped_budget" | "skipped_overlap" | "no_access" | "credential_revoked";
+/** What a schedule's runs launch with: a person's sign-in, an API key, or an agent sign-in. */
+type ScheduleRunAsCredential = "user" | "api_key" | "agent";
 /** A job to run: the same fields as creating a job. */
 interface ScheduleJobSpec {
     /** Shell command to run on the machine. */
@@ -147,8 +153,15 @@ interface ScheduleBase {
     /** 1 to 63 characters. */
     name: string;
     environmentId: string;
-    /** The user the schedule launches as. */
+    /** The user who created the schedule. */
     createdBy: string;
+    /**
+     * The user each run launches as: whoever created the schedule or last changed its spec or
+     * timing, or resumed it.
+     */
+    runAs: string | null;
+    /** What the runs launch with. */
+    runAsCredential: ScheduleRunAsCredential;
     /** Read-only here: change it through `spec`. */
     maxRuntimeMinutes: number;
     /** One-off: the time it runs (ISO). `null` for a recurring schedule. */
@@ -550,7 +563,8 @@ declare class Schedules {
      * Schedule an instance launch or a job, once (`runAt`) or on a recurring `cron` in `timezone`.
      * It starts within about 2 minutes of its time, as you, in this environment. Always set
      * `spec.maxRuntimeMinutes`. A bad spec, cron or time throws an `UnprocessableEntityError`
-     * (422); more than 50 schedules in the workspace throws a `ConflictError` (409).
+     * (422); more than 50 schedules in the environment or 200 in the workspace throws a
+     * `ConflictError` (409).
      */
     create(params: CreateScheduleParams): Promise<Schedule>;
     /** This environment's schedules, newest first. */
@@ -685,4 +699,4 @@ declare class TimeoutError extends RuncrateError {
     constructor(message: string);
 }
 
-export { ApiError, AuthenticationError, BadRequestError, type Balance, type ChatChoice, type ChatCompletion, type ChatCompletionParams, type ChatMessage, type ChatUsage, ConflictError, ConnectionError, type CreateScheduleParams, type Environment, type EnvironmentCreateParams, type EnvironmentUpdateParams, type ImageData, type ImageGeneration, type ImageGenerationParams, type Instance, type InstanceCreateParams, type InstanceListParams, type InstanceStatus, type InstanceType, type InstanceTypeListParams, InsufficientCreditsError, InternalServerError, type ListMeta, NotFoundError, PaginatedResponse, PermissionDeniedError, RateLimitError, type RunNowResult, Runcrate, type RuncrateConfig, RuncrateError, type SSHKey, type SSHKeyCreateParams, type Schedule, type ScheduleDeleteResult, type ScheduleInstanceSpec, type ScheduleJobSpec, type ScheduleKind, type ScheduleOverlap, type ScheduleRunStatus, type ScheduleSpec, type ScheduleTiming, type ScheduledInstanceSpec, type ScheduledJob, type ScheduledJobSpec, type StorageListParams, type StorageVolume, type TTSParams, type Template, type TemplateListParams, TimeoutError, type Transaction, type TransactionListParams, type TranscribeParams, type Transcription, UnprocessableEntityError, type UpdateScheduleParams, type UsageParams, type UsageSummary, type VideoGenerationParams, type VideoJob, type VideoSaveParams, Runcrate as default };
+export { ApiError, AuthenticationError, BadRequestError, type Balance, type ChatChoice, type ChatCompletion, type ChatCompletionParams, type ChatMessage, type ChatUsage, ConflictError, ConnectionError, type CreateScheduleParams, type Environment, type EnvironmentCreateParams, type EnvironmentUpdateParams, type ImageData, type ImageGeneration, type ImageGenerationParams, type Instance, type InstanceCreateParams, type InstanceListParams, type InstanceStatus, type InstanceType, type InstanceTypeListParams, InsufficientCreditsError, InternalServerError, type ListMeta, NotFoundError, PaginatedResponse, PermissionDeniedError, RateLimitError, type RunNowResult, Runcrate, type RuncrateConfig, RuncrateError, type SSHKey, type SSHKeyCreateParams, type Schedule, type ScheduleDeleteResult, type ScheduleInstanceSpec, type ScheduleJobSpec, type ScheduleKind, type ScheduleOverlap, type ScheduleRunAsCredential, type ScheduleRunStatus, type ScheduleSpec, type ScheduleTiming, type ScheduledInstanceSpec, type ScheduledJob, type ScheduledJobSpec, type StorageListParams, type StorageVolume, type TTSParams, type Template, type TemplateListParams, TimeoutError, type Transaction, type TransactionListParams, type TranscribeParams, type Transcription, UnprocessableEntityError, type UpdateScheduleParams, type UsageParams, type UsageSummary, type VideoGenerationParams, type VideoJob, type VideoSaveParams, Runcrate as default };

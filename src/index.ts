@@ -17,6 +17,7 @@ export type {
   ScheduleKind,
   ScheduleOverlap,
   ScheduleRunStatus,
+  ScheduleRunAsCredential,
   ScheduleSpec,
   ScheduleJobSpec,
   ScheduleInstanceSpec,

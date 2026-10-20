@@ -18,6 +18,8 @@ const apiSchedule = {
   kind: "job",
   environment_id: "env1",
   created_by: "u1",
+  run_as: "u2",
+  run_as_credential: "api_key",
   spec: {
     command: "python train.py",
     gpu_type: "H100",
@@ -135,6 +137,8 @@ describe("Schedules resource", () => {
     expect(schedules).toHaveLength(1);
     expect(schedules[0]!.lastStatus).toBeNull();
     expect(schedules[0]!.createdBy).toBe("u1");
+    expect(schedules[0]!.runAs).toBe("u2");
+    expect(schedules[0]!.runAsCredential).toBe("api_key");
   });
 
   it("gets a schedule by id", async () => {
@@ -223,7 +227,7 @@ describe("Schedules resource", () => {
   it("throws ConflictError when the workspace is at its schedule cap", async () => {
     mockFetch([{
       status: 409,
-      body: { error: { code: "conflict", message: "A workspace can have at most 50 schedules" } },
+      body: { error: { code: "conflict", message: "An environment can have at most 50 schedules" } },
     }]);
     const rc = makeClient();
 

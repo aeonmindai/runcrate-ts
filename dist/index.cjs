@@ -615,7 +615,8 @@ var Schedules = class {
    * Schedule an instance launch or a job, once (`runAt`) or on a recurring `cron` in `timezone`.
    * It starts within about 2 minutes of its time, as you, in this environment. Always set
    * `spec.maxRuntimeMinutes`. A bad spec, cron or time throws an `UnprocessableEntityError`
-   * (422); more than 50 schedules in the workspace throws a `ConflictError` (409).
+   * (422); more than 50 schedules in the environment or 200 in the workspace throws a
+   * `ConflictError` (409).
    */
   async create(params) {
     const { kind, spec, runAt, cron, timezone, overlap, name, enabled } = params;
