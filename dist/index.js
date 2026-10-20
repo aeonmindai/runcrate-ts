@@ -349,7 +349,7 @@ var Instances = class {
   /**
    * Launch an instance. For unattended agent work, set `maxRuntimeMinutes` (5 to 10080) and
    * `idleShutdownMinutes` (5 to 1440) so the instance stops on its own. Values outside those
-   * ranges are rejected with a `BadRequestError`. If the environment's monthly budget is
+   * ranges are rejected with an `UnprocessableEntityError` (422). If the environment's monthly budget is
    * reached, this throws an `InsufficientCreditsError` with `code` `"BUDGET_REACHED"`.
    */
   async create(params) {
@@ -369,7 +369,8 @@ var Instances = class {
   }
   /**
    * Change a starting or running instance's auto stop, by id or unique name. Returns the instance
-   * with its new `autoStopAt`. Throws a `ConflictError` (409) when the instance is not live, has
+   * with its new `autoStopAt`. An out-of-range value throws an `UnprocessableEntityError` (422);
+   * a `ConflictError` (409) means the instance is not live, has
    * no GPU for idle stop, or was launched before idle stop existed.
    */
   async update(id, params) {
