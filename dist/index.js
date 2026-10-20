@@ -595,6 +595,100 @@ var Templates = class {
   }
 };
 
+// src/resources/schedules.ts
+function specBody(spec) {
+  const { env, ...rest } = spec;
+  const body = toSnakeCase(rest);
+  if (env !== void 0) body.env = env;
+  return body;
+}
+var Schedules = class {
+  constructor(transport) {
+    this.transport = transport;
+  }
+  transport;
+  /**
+   * Schedule an instance launch or a job, once (`runAt`) or on a recurring `cron` in `timezone`.
+   * It starts within about 2 minutes of its time, as you, in this environment. Always set
+   * `spec.maxRuntimeMinutes`. A bad spec, cron or time throws an `UnprocessableEntityError`
+   * (422); more than 50 schedules in the workspace throws a `ConflictError` (409).
+   */
+  async create(params) {
+    const { kind, spec, runAt, cron, timezone, overlap, name, enabled } = params;
+    const { data } = await this.transport.request({
+      method: "POST",
+      path: "/api/v1/schedules",
+      body: removeUndefined({
+        kind,
+        spec: specBody(spec),
+        run_at: runAt instanceof Date ? runAt.toISOString() : runAt,
+        cron,
+        timezone,
+        overlap,
+        name,
+        enabled
+      })
+    });
+    return data;
+  }
+  /** This environment's schedules, newest first. */
+  async list() {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: "/api/v1/schedules"
+    });
+    return data;
+  }
+  async get(id) {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: `/api/v1/schedules/${id}`
+    });
+    return data;
+  }
+  /**
+   * Pause (`{ enabled: false }`), resume (`{ enabled: true }`), retime, rename or change a
+   * schedule. Resuming a one-off whose time has passed, without a new `runAt`, throws a
+   * `ConflictError` (409).
+   */
+  async update(id, params) {
+    const { spec, runAt, cron, timezone, overlap, name, enabled } = params;
+    const { data } = await this.transport.request({
+      method: "PATCH",
+      path: `/api/v1/schedules/${id}`,
+      body: removeUndefined({
+        enabled,
+        run_at: runAt instanceof Date ? runAt.toISOString() : runAt,
+        cron,
+        timezone,
+        overlap,
+        name,
+        spec: spec ? specBody(spec) : void 0
+      })
+    });
+    return data;
+  }
+  async delete(id) {
+    const { data } = await this.transport.request({
+      method: "DELETE",
+      path: `/api/v1/schedules/${id}`
+    });
+    return data;
+  }
+  /**
+   * Launch a schedule's instance or job now, enabled or not. Does not move `nextRunAt`.
+   * A reached environment budget throws an `InsufficientCreditsError` with `code`
+   * `"BUDGET_REACHED"`; a low balance, the same error with `code` `"insufficient_credits"`.
+   */
+  async runNow(id) {
+    const { data } = await this.transport.request({
+      method: "POST",
+      path: `/api/v1/schedules/${id}/run-now`
+    });
+    return data;
+  }
+};
+
 // src/streaming.ts
 async function* parseSSEStream(response) {
   const reader = response.body?.getReader();
@@ -849,6 +943,7 @@ var Runcrate = class {
   storage;
   billing;
   templates;
+  schedules;
   models;
   // ─── OpenAI-compatible aliases ─────────────────────────────────────────────
   /** OpenAI-compatible chat namespace: `rc.chat.completions.create(...)` */
@@ -890,6 +985,7 @@ var Runcrate = class {
     this.storage = new Storage(infraTransport);
     this.billing = new Billing(infraTransport);
     this.templates = new Templates(infraTransport);
+    this.schedules = new Schedules(infraTransport);
     this.models = new Models(inferenceTransport, inferenceUrl, apiKey);
     this.chat = {
       completions: {

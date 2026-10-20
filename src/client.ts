@@ -18,6 +18,7 @@ import { SSHKeys } from "./resources/ssh-keys.js";
 import { Storage } from "./resources/storage.js";
 import { Billing } from "./resources/billing.js";
 import { Templates } from "./resources/templates.js";
+import { Schedules } from "./resources/schedules.js";
 import { Models } from "./resources/models.js";
 
 const DEFAULT_BASE_URL = "https://www.runcrate.ai";
@@ -87,6 +88,7 @@ export class Runcrate {
   readonly storage: Storage;
   readonly billing: Billing;
   readonly templates: Templates;
+  readonly schedules: Schedules;
   readonly models: Models;
 
   // ─── OpenAI-compatible aliases ─────────────────────────────────────────────
@@ -135,6 +137,7 @@ export class Runcrate {
     this.storage = new Storage(infraTransport);
     this.billing = new Billing(infraTransport);
     this.templates = new Templates(infraTransport);
+    this.schedules = new Schedules(infraTransport);
     this.models = new Models(inferenceTransport, inferenceUrl, apiKey);
 
     // ─── OpenAI-compatible aliases ─────────────────────────────────────────────

@@ -74,6 +74,168 @@ interface InstanceTypeListParams {
     region?: string;
     gpuCount?: number;
 }
+/** What a schedule launches. */
+type ScheduleKind = "instance" | "job";
+/**
+ * Recurring schedules only: `"skip"` (default) skips a run while the previous run is still live,
+ * `"allow"` launches anyway.
+ */
+type ScheduleOverlap = "skip" | "allow";
+/** How the most recent run went. `null` until the schedule first runs. */
+type ScheduleRunStatus = "launched" | "failed" | "skipped_budget" | "skipped_overlap" | "no_access";
+/** A job to run: the same fields as creating a job. */
+interface ScheduleJobSpec {
+    /** Shell command to run on the machine. */
+    command: string;
+    gpuType: string;
+    /** Whole minutes from 1 to 1440. The job stops after this long. */
+    maxRuntimeMinutes: number;
+    gpuCount?: number;
+    template?: string;
+    image?: string;
+    /** Environment variables for the command. Names are sent exactly as given. Write-only. */
+    env?: Record<string, string>;
+    storageId?: string;
+    name?: string;
+    region?: string;
+}
+/** An instance to launch: the same fields as creating an instance, with `maxRuntimeMinutes` required. */
+interface ScheduleInstanceSpec {
+    name: string;
+    /** Required for a schedule, so a scheduled instance always stops on its own. Whole minutes. */
+    maxRuntimeMinutes: number;
+    gpuType?: string;
+    instanceTypeId?: string;
+    gpuCount?: number;
+    region?: string;
+    template?: string;
+    sshKeyId?: string;
+    storageId?: string;
+    /** Write-only. */
+    envVars?: Array<{
+        key: string;
+        value: string;
+    }>;
+    startupCommands?: string[];
+    launchScript?: string;
+    launchScriptBase64?: string;
+    cpuCores?: number;
+    memory?: number;
+    storage?: number;
+    idleShutdownMinutes?: number;
+}
+/** What to launch, discriminated on `kind`. */
+type ScheduleSpec = {
+    kind: "instance";
+    spec: ScheduleInstanceSpec;
+} | {
+    kind: "job";
+    spec: ScheduleJobSpec;
+};
+/** A job spec as returned: env values are never returned, only their names in `envKeys`. */
+type ScheduledJobSpec = Omit<ScheduleJobSpec, "env"> & {
+    envKeys?: string[];
+    [key: string]: unknown;
+};
+/** An instance spec as returned: env values are never returned, only their names in `envKeys`. */
+type ScheduledInstanceSpec = Omit<ScheduleInstanceSpec, "envVars"> & {
+    envKeys?: string[];
+    [key: string]: unknown;
+};
+interface ScheduleBase {
+    id: string;
+    /** 1 to 63 characters. */
+    name: string;
+    environmentId: string;
+    /** The user the schedule launches as. */
+    createdBy: string;
+    /** Read-only here: change it through `spec`. */
+    maxRuntimeMinutes: number;
+    /** One-off: the time it runs (ISO). `null` for a recurring schedule. */
+    runAt: string | null;
+    /** Recurring: a 5-field cron expression. `null` for a one-off. */
+    cron: string | null;
+    /** IANA timezone the cron is read in, `"UTC"` by default. */
+    timezone: string;
+    overlap: ScheduleOverlap;
+    enabled: boolean;
+    /** `null` when disabled or a one-off that has already run. */
+    nextRunAt: string | null;
+    lastRunAt: string | null;
+    lastStatus: ScheduleRunStatus | null;
+    lastError: string | null;
+    lastInstanceId: string | null;
+    lastJobId: string | null;
+    runCount: number;
+    createdAt: string;
+    updatedAt: string;
+    [key: string]: unknown;
+}
+/** A schedule that launches an instance or runs a job, once or on a cron. */
+type Schedule = (ScheduleBase & {
+    kind: "instance";
+    spec: ScheduledInstanceSpec;
+}) | (ScheduleBase & {
+    kind: "job";
+    spec: ScheduledJobSpec;
+});
+/**
+ * When a schedule runs: exactly one of `runAt` (once, at least a minute ahead and at most 365 days)
+ * or `cron` (recurring, occurrences at least 15 minutes apart).
+ */
+type ScheduleTiming = {
+    runAt: string | Date;
+    cron?: never;
+} | {
+    cron: string;
+    runAt?: never;
+};
+type CreateScheduleParams = ScheduleSpec & ScheduleTiming & {
+    /** IANA timezone, e.g. `"Europe/London"`. Default `"UTC"`. */
+    timezone?: string;
+    overlap?: ScheduleOverlap;
+    /** Defaults to the spec's name, or `"<kind>-schedule"`. */
+    name?: string;
+    enabled?: boolean;
+};
+/**
+ * Any of these. `runAt` makes the schedule a one-off (clears `cron`), `cron` makes it recurring
+ * (clears `runAt`). `spec` replaces the whole spec, so resend env values.
+ */
+type UpdateScheduleParams = ({
+    runAt?: never;
+    cron?: never;
+} | {
+    runAt: string | Date;
+    cron?: never;
+} | {
+    cron: string;
+    runAt?: never;
+}) & {
+    /** `false` pauses, `true` resumes. */
+    enabled?: boolean;
+    timezone?: string;
+    overlap?: ScheduleOverlap;
+    name?: string;
+    spec?: ScheduleInstanceSpec | ScheduleJobSpec;
+};
+interface ScheduleDeleteResult {
+    id: string;
+    deleted: true;
+}
+/** The job a run started. */
+interface ScheduledJob {
+    id: string;
+    name: string;
+    status: string;
+    [key: string]: unknown;
+}
+/** What `runNow` started: `instance` for an instance schedule, `job` for a job schedule. */
+interface RunNowResult {
+    schedule: Schedule;
+    instance?: Instance;
+    job?: ScheduledJob;
+}
 interface Environment {
     id: string;
     name: string;
@@ -381,6 +543,34 @@ declare class Templates {
     list(params?: TemplateListParams): Promise<PaginatedResponse<Template>>;
 }
 
+declare class Schedules {
+    private readonly transport;
+    constructor(transport: Transport);
+    /**
+     * Schedule an instance launch or a job, once (`runAt`) or on a recurring `cron` in `timezone`.
+     * It starts within about 2 minutes of its time, as you, in this environment. Always set
+     * `spec.maxRuntimeMinutes`. A bad spec, cron or time throws an `UnprocessableEntityError`
+     * (422); more than 50 schedules in the workspace throws a `ConflictError` (409).
+     */
+    create(params: CreateScheduleParams): Promise<Schedule>;
+    /** This environment's schedules, newest first. */
+    list(): Promise<Schedule[]>;
+    get(id: string): Promise<Schedule>;
+    /**
+     * Pause (`{ enabled: false }`), resume (`{ enabled: true }`), retime, rename or change a
+     * schedule. Resuming a one-off whose time has passed, without a new `runAt`, throws a
+     * `ConflictError` (409).
+     */
+    update(id: string, params: UpdateScheduleParams): Promise<Schedule>;
+    delete(id: string): Promise<ScheduleDeleteResult>;
+    /**
+     * Launch a schedule's instance or job now, enabled or not. Does not move `nextRunAt`.
+     * A reached environment budget throws an `InsufficientCreditsError` with `code`
+     * `"BUDGET_REACHED"`; a low balance, the same error with `code` `"insufficient_credits"`.
+     */
+    runNow(id: string): Promise<RunNowResult>;
+}
+
 declare class Models {
     private readonly transport;
     private readonly inferenceUrl;
@@ -439,6 +629,7 @@ declare class Runcrate {
     readonly storage: Storage;
     readonly billing: Billing;
     readonly templates: Templates;
+    readonly schedules: Schedules;
     readonly models: Models;
     /** OpenAI-compatible chat namespace: `rc.chat.completions.create(...)` */
     readonly chat: ChatNamespace;
@@ -494,4 +685,4 @@ declare class TimeoutError extends RuncrateError {
     constructor(message: string);
 }
 
-export { ApiError, AuthenticationError, BadRequestError, type Balance, type ChatChoice, type ChatCompletion, type ChatCompletionParams, type ChatMessage, type ChatUsage, ConflictError, ConnectionError, type Environment, type EnvironmentCreateParams, type EnvironmentUpdateParams, type ImageData, type ImageGeneration, type ImageGenerationParams, type Instance, type InstanceCreateParams, type InstanceListParams, type InstanceStatus, type InstanceType, type InstanceTypeListParams, InsufficientCreditsError, InternalServerError, type ListMeta, NotFoundError, PaginatedResponse, PermissionDeniedError, RateLimitError, Runcrate, type RuncrateConfig, RuncrateError, type SSHKey, type SSHKeyCreateParams, type StorageListParams, type StorageVolume, type TTSParams, type Template, type TemplateListParams, TimeoutError, type Transaction, type TransactionListParams, type TranscribeParams, type Transcription, UnprocessableEntityError, type UsageParams, type UsageSummary, type VideoGenerationParams, type VideoJob, type VideoSaveParams, Runcrate as default };
+export { ApiError, AuthenticationError, BadRequestError, type Balance, type ChatChoice, type ChatCompletion, type ChatCompletionParams, type ChatMessage, type ChatUsage, ConflictError, ConnectionError, type CreateScheduleParams, type Environment, type EnvironmentCreateParams, type EnvironmentUpdateParams, type ImageData, type ImageGeneration, type ImageGenerationParams, type Instance, type InstanceCreateParams, type InstanceListParams, type InstanceStatus, type InstanceType, type InstanceTypeListParams, InsufficientCreditsError, InternalServerError, type ListMeta, NotFoundError, PaginatedResponse, PermissionDeniedError, RateLimitError, type RunNowResult, Runcrate, type RuncrateConfig, RuncrateError, type SSHKey, type SSHKeyCreateParams, type Schedule, type ScheduleDeleteResult, type ScheduleInstanceSpec, type ScheduleJobSpec, type ScheduleKind, type ScheduleOverlap, type ScheduleRunStatus, type ScheduleSpec, type ScheduleTiming, type ScheduledInstanceSpec, type ScheduledJob, type ScheduledJobSpec, type StorageListParams, type StorageVolume, type TTSParams, type Template, type TemplateListParams, TimeoutError, type Transaction, type TransactionListParams, type TranscribeParams, type Transcription, UnprocessableEntityError, type UpdateScheduleParams, type UsageParams, type UsageSummary, type VideoGenerationParams, type VideoJob, type VideoSaveParams, Runcrate as default };
