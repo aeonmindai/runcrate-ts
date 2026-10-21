@@ -204,6 +204,8 @@ await rc.instances.update(instance.id, { maxRuntimeMinutes: 480, idleShutdownMin
 A job runs one command on its own fresh GPU machine, which stops (and stops billing) when the command ends. Write outputs to `$RUNCRATE_OUTPUT_DIR` and they are kept 30 days.
 
 ```typescript
+import { basename } from 'node:path';
+
 const job = await rc.jobs.run({
   command: 'python train.py --epochs 3 && cp model.pt $RUNCRATE_OUTPUT_DIR/',
   gpuType: ['A4000', 'L40S'],      // tried in order; an entry may carry its count, 'H100:2'
@@ -222,7 +224,7 @@ const done = await rc.jobs.wait(job.id, { timeout: 3600 }); // polls with backof
 console.log(done.status, done.exitCode, done.costUsd);
 
 for (const file of await rc.jobs.artifacts.list(job.id)) {
-  await rc.jobs.artifacts.downloadTo(job.id, file.path, `./out-${file.path.replaceAll('/', '_')}`);
+  await rc.jobs.artifacts.downloadTo(job.id, file.path, basename(file.path));
 }
 ```
 
@@ -356,7 +358,7 @@ const rc = new Runcrate({
 Reads, updates and deletes are retried on 429, 5xx, timeouts and lost connections. A request that creates or launches something is never sent twice by accident:
 
 - Job submits and reruns send an `Idempotency-Key`, which the server honours, so they are retried like reads.
-- Instance, schedule and volume creates, and `schedules.runNow`, also send an `Idempotency-Key`, but those routes do not deduplicate yet. Once such a request may have reached Runcrate (a timeout, a lost connection, a 500, 502 or 504) it is not sent again and the error is thrown: check `instances.list()` before launching again. Only a 429 or 503, which say nothing was launched, and a connection that never opened are retried.
+- Instance, schedule and volume creates also send an `Idempotency-Key`, but those routes do not deduplicate it yet; `schedules.runNow` sends none. Once one of these, or a run-now, may have reached Runcrate (a timeout, a lost connection, a 500, 502 or 504) it is not sent again and the error is thrown: check `instances.list()` before launching again. Only a 429 or 503, which say nothing was launched, and a connection that never opened are retried.
 - A launch waits at least 75 seconds (a job submit 135) for its answer, whatever `timeout` is, so the client does not give up while the server is still launching.
 
 ## Requirements
