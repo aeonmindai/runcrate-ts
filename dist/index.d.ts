@@ -527,6 +527,284 @@ interface Transcription {
     segments?: unknown[] | null;
     [key: string]: unknown;
 }
+/** `queued`, `starting` and `running` are live; the rest are final. */
+type JobStatus = "queued" | "starting" | "running" | "succeeded" | "failed" | "cancelled" | "timed_out";
+/** What a failed attempt is retried on. A machine failure is always retried once `maxRetries` is above 0. */
+type JobRetryOn = "machine_failure" | "nonzero_exit";
+/** Which of the job's moments call `webhookUrl`. */
+type JobWebhookEvent = "started" | "finished";
+/** Why a queued job waits. */
+type JobQueueReason = "no_capacity" | "budget" | "max_parallel" | "volume_busy";
+/** The code to fetch into `/workspace/code` before the command runs there. */
+type JobCode = 
+/** A tar.gz sent with `jobs.uploads.upload()`. */
+{
+    uploadId: string;
+}
+/** A git repository over https; `tokenEnv` names the env variable or secret holding a token for a private one. */
+ | {
+    git: {
+        url: string;
+        ref?: string;
+        tokenEnv?: string;
+    };
+};
+/** The fields of one job, as `jobs.run()` takes them. */
+interface JobRunParams {
+    /** Shell command, run with bash in `/workspace`. At most 64 KB. */
+    command: string;
+    /**
+     * The GPU, e.g. `"A4000"`, or GPUs to try in order, e.g. `["H100", "A100-80GB:2"]` (an entry
+     * may carry its count). At most 8.
+     */
+    gpuType: string | string[];
+    /** Whole minutes from 1 to 10080 (7 days); each attempt stops after this long. */
+    maxRuntimeMinutes: number;
+    /** GPUs per machine, 1 to 8, for entries of `gpuType` without a count. Default 1. */
+    gpuCount?: number;
+    template?: string;
+    /** A container image to run the command in, e.g. `"pytorch/pytorch:latest"`. */
+    image?: string;
+    /** Environment variables. Names are sent exactly as given. Write-only: a job shows only `envKeys`. */
+    env?: Record<string, string>;
+    /** A volume mounted at `/workspace`. */
+    storageId?: string;
+    /** At most 63 characters. Default `job-<first 8 characters of the id>`. */
+    name?: string;
+    /** Only run in this region (a region id, the start of one such as `us-east`, or a city or country). */
+    region?: string;
+    /** How long a job may wait for a GPU, 0 to 1440 minutes. Default 30. */
+    capacityWaitMinutes?: number;
+    /** Retries of a failed attempt, 0 to 10. Default 0. */
+    maxRetries?: number;
+    retryOn?: JobRetryOn[];
+    /** With `retryOn` `nonzero_exit`: only these exit codes (1 to 255) are retried. */
+    retryExitCodes?: number[];
+    /** Up to 20 `{ key: value }` pairs; keys are 1 to 40 of `a-z 0-9 _ . : -`. Sent and returned as given. */
+    tags?: Record<string, string>;
+    /** An https URL called with a signed POST when the job finishes (and starts, with `webhookEvents`). */
+    webhookUrl?: string;
+    webhookEvents?: JobWebhookEvent[];
+    code?: JobCode;
+    /** Env names (or secrets) holding the registry login for a private `image`. */
+    imageRegistryAuth?: {
+        usernameEnv: string;
+        passwordEnv: string;
+    };
+    /** Run `image` on a machine without the NVIDIA container runtime, with no GPU in the container. */
+    allowCpuContainer?: boolean;
+}
+/** A group of jobs: `count` copies, or one job per `params` entry (merged over `env`). */
+type JobGroupRunParams = JobRunParams & {
+    /** How many jobs at most run at once. Default all of them. */
+    maxParallel?: number;
+} & ({
+    count: number;
+    params?: undefined;
+} | {
+    params: Array<Record<string, string>>;
+    count?: number;
+});
+/** The fields of a job to change on a rerun; anything left out is the job's own. `env` is merged over the job's. */
+type JobRerunParams = Partial<JobRunParams>;
+/** Options of a call that creates jobs. */
+interface JobSubmitOptions {
+    /**
+     * Makes the submit safe to repeat for 24 hours: the same key with the same request answers the
+     * first result. Default: a new key per call, reused on that call's retries.
+     */
+    idempotencyKey?: string;
+}
+interface GpuCandidate {
+    gpuType: string;
+    gpuCount: number;
+}
+/** One attempt of a job; a retry starts a new one on a new machine. */
+interface JobAttempt {
+    attempt: number;
+    /** The machine (an instance) the attempt ran on. */
+    deploymentId: string | null;
+    status: JobStatus;
+    exitCode: number | null;
+    error: string | null;
+    startedAt: string | null;
+    endedAt: string | null;
+    costUsd: number | null;
+    gpuType: string;
+    gpuCount: number;
+    region: string | null;
+}
+/** A job's code as fetched: `ref` is the upload id or the git ref; `sha256` and `commit` once fetched. */
+type JobCodeInfo = {
+    source: "upload";
+    ref: string;
+    sha256: string | null;
+} | {
+    source: "git";
+    url: string;
+    ref: string | null;
+    sha256: null;
+    commit: string | null;
+};
+/** A command run on its own fresh machine, which stops when the command ends. Env values are never in it. */
+interface Job {
+    id: string;
+    name: string;
+    status: JobStatus;
+    command: string;
+    /** The GPU it runs (or last ran) on; the first candidate until it has had a machine. */
+    gpuType: string;
+    gpuCount: number;
+    /** The GPUs asked for, in the order they are tried. */
+    gpuCandidates: GpuCandidate[];
+    template: string | null;
+    image: string | null;
+    envKeys: string[];
+    storageId: string | null;
+    maxRuntimeMinutes: number;
+    capacityWaitMinutes: number;
+    queueReason: JobQueueReason | null;
+    /** When a queued job is tried next. */
+    nextAttemptAt: string | null;
+    /** 1-based; above 1 after a retry. */
+    attempt: number;
+    maxRetries: number;
+    retryOn: JobRetryOn[];
+    retryExitCodes: number[];
+    /** Every attempt, the current one last. */
+    attempts: JobAttempt[];
+    exitCode: number | null;
+    error: string | null;
+    /** The machine the current attempt runs on. */
+    instanceId: string | null;
+    environmentId: string;
+    /** As sent: keys are not camelCased. */
+    tags: Record<string, string>;
+    groupId: string | null;
+    /** 0-based place in its group. */
+    jobIndex: number;
+    rerunOf: string | null;
+    /** The callback, shown as its host and the end of its path. */
+    webhookUrl: string | null;
+    webhookEvents: JobWebhookEvent[];
+    createdAt: string;
+    startedAt: string | null;
+    endedAt: string | null;
+    costPerHour: number | null;
+    /** Every attempt's machine, added up. */
+    costUsd: number | null;
+    logBytes: number;
+    logsTruncated: boolean;
+    code: JobCodeInfo | null;
+    allowCpuContainer: boolean;
+    imageRegistryAuth: {
+        usernameEnv: string;
+        passwordEnv: string;
+    } | null;
+    artifactsCount: number;
+    gpuUtilAvg: number | null;
+    gpuMemPeakMb: number | null;
+}
+/** A submitted job. `webhookSecret` (to check callback signatures) is only in the answer that created it. */
+type SubmittedJob = Job & {
+    webhookSecret?: string;
+};
+/** A group of jobs from `count` or `params`. Its jobs are `jobs.list({ groupId })`. */
+interface JobGroup {
+    id: string;
+    count: number;
+    maxParallel: number;
+    /** How many of its jobs are in each status (keys as the API sends them, e.g. `timed_out`). */
+    statusCounts: Record<JobStatus, number>;
+    costUsd: number | null;
+    createdAt: string;
+}
+/** A submitted group with its jobs. */
+type SubmittedJobGroup = JobGroup & {
+    jobs: Job[];
+    webhookSecret?: string;
+};
+interface JobListParams {
+    /** Only jobs in these statuses. */
+    status?: JobStatus | JobStatus[];
+    /** Only jobs with every one of these tags. */
+    tags?: Record<string, string>;
+    /** Only the jobs of this group. */
+    groupId?: string;
+    /** Only jobs whose name contains this. */
+    q?: string;
+    /** Only jobs that ran (or run) on this GPU. */
+    gpuType?: string;
+    /** Only jobs created at or after this time. */
+    createdAfter?: Date | string;
+    /** 1 to 100. Default 20. */
+    limit?: number;
+    /** `cursor` of the previous page. */
+    cursor?: string;
+}
+/** A fragment of a job's combined stdout and stderr. `seq` and `ts` are null on a marker where output was dropped. */
+interface JobLogChunk {
+    seq: number | null;
+    ts: string | null;
+    text: string;
+}
+/** One page of a job's output. Pass `cursor` back as `after`; `done` once the job ended and every chunk was read. */
+interface JobLogs {
+    jobId: string;
+    status: JobStatus;
+    chunks: JobLogChunk[];
+    cursor: number;
+    truncated: boolean;
+    done: boolean;
+}
+interface JobLogsParams {
+    /** The `cursor` of the last page. Default 0, the start. */
+    after?: number;
+    /** 1 to 1000 chunks. Default 500. */
+    limit?: number;
+    /** Wait up to 25 seconds for output (or the end) when there is none yet. */
+    follow?: boolean;
+}
+/** A moment in a job's life: `created`, `queued`, `launch_attempt`, `machine_up`, `started`, `exited`, `retrying`, `artifacts_uploaded`, `stopped` and others. */
+interface JobEvent {
+    at: string;
+    kind: string;
+    detail: string | null;
+    /** The attempt it belongs to; null for a moment of the machine rather than of one attempt. */
+    attempt: number | null;
+}
+/** GPU use over one step while the command ran: `util` the average percent, memory its peak. */
+interface JobMetricPoint {
+    at: string;
+    gpus: Array<{
+        util: number;
+        memUsedMb: number;
+        memTotalMb: number;
+    }>;
+}
+/** A file the command wrote to `$RUNCRATE_OUTPUT_DIR`, kept 30 days after the job ended. */
+interface JobArtifact {
+    path: string;
+    bytes: number;
+    sha256: string;
+}
+/** Somewhere to PUT a job's code. Submit it with `code: { uploadId }` before `expiresAt`. */
+interface JobUpload {
+    uploadId: string;
+    /** PUT the tar.gz here; null when a job already uses this upload (nothing to send). */
+    url: string | null;
+    urlExpiresAt: string | null;
+    expiresAt: string;
+    maxBytes: number;
+}
+interface JobWaitOptions {
+    /** Seconds to wait at most; a `JobWaitTimeoutError` then. Default: until the job ends. */
+    timeout?: number;
+    /** Seconds between the first polls. Default 2. */
+    pollInterval?: number;
+    /** The longest gap between polls, in seconds; the gap doubles up to it. Default 30. */
+    maxPollInterval?: number;
+}
 
 interface TransportConfig {
     baseUrl: string;
@@ -536,6 +814,11 @@ interface TransportConfig {
     customHeaders: Record<string, string>;
     /** Optional environment name. Appended as ?environment=<name> to every request. */
     environment?: string;
+    /**
+     * Whether a POST is safe to send twice unless a request says otherwise. False for the
+     * infrastructure API, where a POST creates or launches something; true for inference.
+     */
+    postsAreIdempotent?: boolean;
 }
 interface RequestOptions {
     method: string;
@@ -543,8 +826,25 @@ interface RequestOptions {
     params?: Record<string, unknown>;
     body?: unknown;
     timeout?: number;
+    /** Seconds the request gets at least, whatever the client's timeout (a launch takes a while). */
+    minTimeout?: number;
     raw?: boolean;
     noUnwrap?: boolean;
+    /**
+     * Sent as the Idempotency-Key header, the same on every retry of this call. On a route that
+     * honours it, a retry answers the first request's result instead of doing it again.
+     */
+    idempotencyKey?: string;
+    /**
+     * Whether sending this request twice is harmless. GET, PATCH, PUT and DELETE are; a POST only
+     * when its route dedupes it (an honoured Idempotency-Key, or an action that is the same done
+     * twice). A request that is not is never sent again once it may have reached the server (a
+     * timeout, a lost connection, a 500, 502 or 504): only a 429 or 503, which say nothing was done,
+     * and a connection that never opened are retried.
+     */
+    idempotent?: boolean;
+    /** Response keys whose values are user data (tag names, env names): kept as sent, not camelCased. */
+    rawKeys?: readonly string[];
 }
 interface ApiResponse<T> {
     data: T;
@@ -555,6 +855,16 @@ declare class Transport {
     private readonly headers;
     constructor(config: TransportConfig);
     request<T>(options: RequestOptions): Promise<ApiResponse<T>>;
+    /**
+     * Where a redirecting GET (an artifact download) points, without following it: the signed URL
+     * needs no API key, and the key must not travel to another host.
+     */
+    redirectLocation(options: Pick<RequestOptions, "path" | "params" | "timeout">): Promise<string>;
+    /**
+     * Sends the request, retrying what is safe to retry (RequestOptions.idempotent), and answers
+     * the last response; throws a TimeoutError or ConnectionError when no response came.
+     */
+    private send;
     streamRequest(options: Omit<RequestOptions, "raw">): Promise<Response>;
 }
 
@@ -567,6 +877,10 @@ declare class Instances {
      * `idleShutdownMinutes` (5 to 1440) so the instance stops on its own. Values outside those
      * ranges are rejected with an `UnprocessableEntityError` (422). If the environment's monthly budget is
      * reached, this throws an `InsufficientCreditsError` with `code` `"BUDGET_REACHED"`.
+     *
+     * A launch is never sent twice once it may have reached Runcrate: a timeout or a lost connection
+     * throws (check `instances.list()` before launching again), and only a 429 or 503, which say
+     * nothing was launched, are retried.
      */
     create(params: InstanceCreateParams): Promise<Instance>;
     get(id: string): Promise<Instance>;
@@ -706,6 +1020,109 @@ declare class Models {
     transcribe(params: TranscribeParams): Promise<Transcription>;
 }
 
+/** Whether a job status is final (`succeeded`, `failed`, `cancelled` or `timed_out`). */
+declare function isJobFinished(status: JobStatus): boolean;
+/** A job's outputs: the files its command wrote to `$RUNCRATE_OUTPUT_DIR`. */
+declare class JobArtifacts {
+    private readonly transport;
+    constructor(transport: Transport);
+    /** The job's outputs by path, kept 30 days after it ended. */
+    list(jobId: string): Promise<JobArtifact[]>;
+    /** A signed URL that downloads one output, valid for an hour. Needs no API key. */
+    url(jobId: string, path: string): Promise<string>;
+    /** One output's bytes, in memory. Use `downloadTo` for large files. */
+    download(jobId: string, path: string): Promise<Buffer>;
+    /** Streams one output to `destination` on disk (the file is replaced). */
+    downloadTo(jobId: string, path: string, destination: string): Promise<void>;
+}
+/** Code uploads: a tar.gz a job unpacks into `/workspace/code`, where its command runs. */
+declare class JobUploads {
+    private readonly transport;
+    constructor(transport: Transport);
+    /**
+     * Somewhere to PUT a tar.gz of `bytes` (at most 1 GB). With `sha256`, the same archive again
+     * answers the same upload. Use `upload()` to do both steps.
+     */
+    create(params: {
+        bytes: number;
+        sha256?: string;
+    }): Promise<JobUpload>;
+    /**
+     * Uploads a tar.gz (its bytes, or a path to one) and answers the upload: run a job with
+     * `code: { uploadId: upload.uploadId }` within 24 hours. The same archive again is not sent twice.
+     */
+    upload(archive: Uint8Array | string): Promise<JobUpload>;
+}
+/**
+ * Jobs: a command run on its own fresh GPU machine, which stops (and stops billing) when the
+ * command ends. Every submit carries an Idempotency-Key, so its retries never start a second job.
+ */
+declare class Jobs {
+    private readonly transport;
+    readonly artifacts: JobArtifacts;
+    readonly uploads: JobUploads;
+    constructor(transport: Transport);
+    /**
+     * Run one job. Answers it queued or starting; `wait()` for the end. A low balance throws an
+     * `InsufficientCreditsError`, a reached environment budget the same with `code`
+     * `"BUDGET_REACHED"`, a bad field an `UnprocessableEntityError`. For several jobs at once use
+     * `runGroup()`.
+     */
+    run(params: JobRunParams, options?: JobSubmitOptions): Promise<SubmittedJob>;
+    /**
+     * Run a group of jobs: `count` copies of one, or one per `params` entry (each merged over
+     * `env`), at most `maxParallel` at once. Answers the group with its jobs.
+     */
+    runGroup(params: JobGroupRunParams, options?: JobSubmitOptions): Promise<SubmittedJobGroup>;
+    /**
+     * Run a job's spec again as a new job (its `rerunOf` set), with its env values. `overrides`
+     * changes fields; its `env` is merged over the job's. Only whoever submitted the job can reuse
+     * its env values; anyone else must send them.
+     */
+    rerun(id: string, overrides?: JobRerunParams, options?: JobSubmitOptions): Promise<SubmittedJob>;
+    private submit;
+    get(id: string): Promise<Job>;
+    /** One page of jobs, newest first. Pass `cursor` for the next page, or use `listAll()`. */
+    list(params?: JobListParams): Promise<PaginatedResponse<Job>>;
+    /** Every job matching `params`, newest first, page by page. */
+    listAll(params?: Omit<JobListParams, "cursor">): AsyncGenerator<Job>;
+    /** Stops the job's machine; the job becomes `cancelled`. A job that ended otherwise throws a `ConflictError`. */
+    cancel(id: string): Promise<Job>;
+    /** Deletes a job that ended, with its logs and outputs. A live job throws a `ConflictError`: cancel it first. */
+    delete(id: string): Promise<void>;
+    /** One page of the job's output after `after`. */
+    logs(id: string, params?: JobLogsParams): Promise<JobLogs>;
+    /**
+     * The job's output as it is written, chunk by chunk, until the job ends and every chunk was
+     * read. Starts at `after` (default 0, the start). Stop early with `signal` or by breaking out.
+     */
+    followLogs(id: string, options?: {
+        after?: number;
+        signal?: AbortSignal;
+    }): AsyncGenerator<JobLogChunk>;
+    /** The job's timeline, oldest first. */
+    events(id: string): Promise<JobEvent[]>;
+    /** GPU use while the command ran, oldest first, one point per `step` seconds (60 to 86400). */
+    metrics(id: string, params?: {
+        step?: number;
+    }): Promise<JobMetricPoint[]>;
+    /**
+     * Polls the job until it ends (succeeded, failed, cancelled or timed out) and answers it. The
+     * gap between polls starts at `pollInterval` and doubles up to `maxPollInterval`. Past
+     * `timeout` seconds it throws a `JobWaitTimeoutError` holding the job as last seen; the job
+     * keeps running.
+     */
+    wait(id: string, options?: JobWaitOptions): Promise<Job>;
+}
+/** Groups of jobs, made by `jobs.runGroup()`. */
+declare class JobGroups {
+    private readonly transport;
+    constructor(transport: Transport);
+    get(id: string): Promise<JobGroup>;
+    /** Cancels every job of the group that has not ended. */
+    cancel(id: string): Promise<JobGroup>;
+}
+
 interface ChatCompletionsNamespace {
     create(params: ChatCompletionParams): Promise<ChatCompletion | AsyncGenerator<Record<string, unknown>>>;
 }
@@ -743,6 +1160,10 @@ declare class Runcrate {
     readonly billing: Billing;
     readonly templates: Templates;
     readonly schedules: Schedules;
+    /** Commands run on their own fresh GPU machine, with logs, retries and outputs. */
+    readonly jobs: Jobs;
+    /** Groups of jobs from `jobs.runGroup()`. */
+    readonly jobGroups: JobGroups;
     readonly models: Models;
     /** OpenAI-compatible chat namespace: `rc.chat.completions.create(...)` */
     readonly chat: ChatNamespace;
@@ -802,5 +1223,10 @@ declare class ConnectionError extends RuncrateError {
 declare class TimeoutError extends RuncrateError {
     constructor(message: string);
 }
+/** `jobs.wait()` ran out of time before the job ended. `job` is the job as last seen (still live). */
+declare class JobWaitTimeoutError extends TimeoutError {
+    readonly job: Job;
+    constructor(message: string, job: Job);
+}
 
-export { ApiError, AuthenticationError, BadRequestError, type Balance, type ChatChoice, type ChatCompletion, type ChatCompletionParams, type ChatMessage, type ChatUsage, ConflictError, ConnectionError, type CreateScheduleParams, type Environment, type EnvironmentCreateParams, type EnvironmentUpdateParams, type ImageData, type ImageGeneration, type ImageGenerationParams, type Instance, type InstanceCreateParams, type InstanceListParams, type InstanceStatus, type InstanceStopReason, type InstanceType, type InstanceTypeListParams, type InstanceUpdateParams, InsufficientCreditsError, InternalServerError, type ListMeta, NotFoundError, PaginatedResponse, PermissionDeniedError, RateLimitError, type RunNowResult, Runcrate, type RuncrateConfig, RuncrateError, type SSHKey, type SSHKeyCreateParams, type Schedule, type ScheduleDeleteResult, type ScheduleInstanceSpec, type ScheduleJobSpec, type ScheduleKind, type ScheduleOverlap, type ScheduleRunAsCredential, type ScheduleRunStatus, type ScheduleSpec, type ScheduleTiming, type ScheduledInstanceSpec, type ScheduledJob, type ScheduledJobSpec, type Secret, type StorageListParams, type StorageVolume, type TTSParams, type Template, type TemplateListParams, TimeoutError, type Transaction, type TransactionListParams, type TranscribeParams, type Transcription, UnprocessableEntityError, type UpdateScheduleParams, type UsageParams, type UsageSummary, type VideoGenerationParams, type VideoJob, type VideoSaveParams, Runcrate as default };
+export { ApiError, AuthenticationError, BadRequestError, type Balance, type ChatChoice, type ChatCompletion, type ChatCompletionParams, type ChatMessage, type ChatUsage, ConflictError, ConnectionError, type CreateScheduleParams, type Environment, type EnvironmentCreateParams, type EnvironmentUpdateParams, type GpuCandidate, type ImageData, type ImageGeneration, type ImageGenerationParams, type Instance, type InstanceCreateParams, type InstanceListParams, type InstanceStatus, type InstanceStopReason, type InstanceType, type InstanceTypeListParams, type InstanceUpdateParams, InsufficientCreditsError, InternalServerError, type Job, type JobArtifact, type JobAttempt, type JobCode, type JobCodeInfo, type JobEvent, type JobGroup, type JobGroupRunParams, type JobListParams, type JobLogChunk, type JobLogs, type JobLogsParams, type JobMetricPoint, type JobQueueReason, type JobRerunParams, type JobRetryOn, type JobRunParams, type JobStatus, type JobSubmitOptions, type JobUpload, type JobWaitOptions, JobWaitTimeoutError, type JobWebhookEvent, type ListMeta, NotFoundError, PaginatedResponse, PermissionDeniedError, RateLimitError, type RunNowResult, Runcrate, type RuncrateConfig, RuncrateError, type SSHKey, type SSHKeyCreateParams, type Schedule, type ScheduleDeleteResult, type ScheduleInstanceSpec, type ScheduleJobSpec, type ScheduleKind, type ScheduleOverlap, type ScheduleRunAsCredential, type ScheduleRunStatus, type ScheduleSpec, type ScheduleTiming, type ScheduledInstanceSpec, type ScheduledJob, type ScheduledJobSpec, type Secret, type StorageListParams, type StorageVolume, type SubmittedJob, type SubmittedJobGroup, type TTSParams, type Template, type TemplateListParams, TimeoutError, type Transaction, type TransactionListParams, type TranscribeParams, type Transcription, UnprocessableEntityError, type UpdateScheduleParams, type UsageParams, type UsageSummary, type VideoGenerationParams, type VideoJob, type VideoSaveParams, Runcrate as default, isJobFinished };

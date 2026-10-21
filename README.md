@@ -199,6 +199,51 @@ await rc.instances.update(instance.id, { maxRuntimeMinutes: 480, idleShutdownMin
 - `idleShutdownMinutes`: idle means GPU utilisation under 5% with nobody connected (SSH, web terminal or editor); GPU instances only.
 - Omit either one, or pass `null`, for no limit. Values outside the ranges throw an `UnprocessableEntityError` (HTTP 422, `validation_error`).
 
+### Jobs
+
+A job runs one command on its own fresh GPU machine, which stops (and stops billing) when the command ends. Write outputs to `$RUNCRATE_OUTPUT_DIR` and they are kept 30 days.
+
+```typescript
+import { basename } from 'node:path';
+
+const job = await rc.jobs.run({
+  command: 'python train.py --epochs 3 && cp model.pt $RUNCRATE_OUTPUT_DIR/',
+  gpuType: ['A4000', 'L40S'],      // tried in order; an entry may carry its count, 'H100:2'
+  maxRuntimeMinutes: 60,           // required, 1 to 10080; each attempt stops after this long
+  template: 'ubuntu-train',
+  env: { HF_TOKEN: process.env.HF_TOKEN! },
+  tags: { project: 'vision' },
+  maxRetries: 2,                   // a machine failure is retried; add retryOn: ['nonzero_exit'] for the command's own
+  code: { git: { url: 'https://github.com/acme/train', ref: 'main' } },
+});
+
+// Stream the output until the job ends
+for await (const chunk of rc.jobs.followLogs(job.id)) process.stdout.write(chunk.text);
+
+const done = await rc.jobs.wait(job.id, { timeout: 3600 }); // polls with backoff; JobWaitTimeoutError past the timeout
+console.log(done.status, done.exitCode, done.costUsd);
+
+for (const file of await rc.jobs.artifacts.list(job.id)) {
+  await rc.jobs.artifacts.downloadTo(job.id, file.path, basename(file.path));
+}
+```
+
+| Method | What it does |
+|---|---|
+| `jobs.run(params, { idempotencyKey? })` | Runs one job. |
+| `jobs.runGroup({ ...params, count \| params, maxParallel? })` | Runs `count` copies, or one job per `params` entry (each merged over `env`). Answers the group with its jobs. |
+| `jobs.get(id)`, `jobs.list({ status, tags, groupId, q, gpuType, createdAfter, limit, cursor })`, `jobs.listAll(filters)` | Reads jobs, newest first. `list` answers one page (`hasMore`, `cursor`); `listAll` pages through. |
+| `jobs.cancel(id)`, `jobs.delete(id)` | Cancels a live job; deletes a job that ended, with its logs and outputs. |
+| `jobs.rerun(id, overrides?)` | Runs the spec again as a new job, with its env values; `overrides.env` is merged over them. |
+| `jobs.logs(id, { after, limit, follow })`, `jobs.followLogs(id, { after, signal })` | One page of output; or every chunk as it is written until the job ends. |
+| `jobs.events(id)`, `jobs.metrics(id, { step })` | The timeline (queued, launch attempts, started, exited, ...); GPU use per step. |
+| `jobs.wait(id, { timeout, pollInterval, maxPollInterval })` | Polls until the job ends, the gap doubling from 2 s to 30 s. |
+| `jobs.artifacts.list(id)`, `.url(id, path)`, `.download(id, path)`, `.downloadTo(id, path, file)` | Outputs; a signed URL valid an hour (the API key never goes to it). |
+| `jobs.uploads.upload(tarGzBytesOrPath)` | Sends a tar.gz of your code; run with `code: { uploadId }` within 24 hours. |
+| `jobGroups.get(id)`, `jobGroups.cancel(id)` | A group's status counts and cost; cancels its live jobs. |
+
+Every job submit and rerun sends an `Idempotency-Key` (a new one per call, or yours), and its retries reuse it, so a retry after a timeout answers the first job instead of starting a second. Pass your own key to make a submit safe to repeat across processes for 24 hours.
+
 ### SSH Keys
 
 ```typescript
@@ -307,6 +352,14 @@ const rc = new Runcrate({
   customHeaders: {},            // extra headers
 });
 ```
+
+### Retries and launches
+
+Reads, updates and deletes are retried on 429, 5xx, timeouts and lost connections. A request that creates or launches something is never sent twice by accident:
+
+- Job submits and reruns send an `Idempotency-Key`, which the server honours, so they are retried like reads.
+- Instance, schedule and volume creates also send an `Idempotency-Key`, but those routes do not deduplicate it yet; `schedules.runNow` sends none. Once one of these, or a run-now, may have reached Runcrate (a timeout, a lost connection, a 500, 502 or 504) it is not sent again and the error is thrown: check `instances.list()` before launching again. Only a 429 or 503, which say nothing was launched, and a connection that never opened are retried.
+- A launch waits at least 75 seconds (a job submit 135) for its answer, whatever `timeout` is, so the client does not give up while the server is still launching.
 
 ## Requirements
 

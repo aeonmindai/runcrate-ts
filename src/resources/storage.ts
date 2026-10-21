@@ -6,6 +6,7 @@ import type {
   StorageDeleteResult,
   StorageRegion,
 } from "../types.js";
+import { newIdempotencyKey } from "../transport.js";
 import { removeUndefined, toSnakeCase } from "../util.js";
 
 export class Storage {
@@ -41,6 +42,7 @@ export class Storage {
       method: "POST",
       path: "/api/v1/storage",
       body: toSnakeCase(params),
+      idempotencyKey: newIdempotencyKey(),
     });
     return data;
   }
