@@ -57,6 +57,31 @@ export type {
   TTSParams,
   TranscribeParams,
   Transcription,
+  Job,
+  JobStatus,
+  JobRetryOn,
+  JobWebhookEvent,
+  JobQueueReason,
+  JobCode,
+  JobCodeInfo,
+  JobRunParams,
+  JobGroupRunParams,
+  JobRerunParams,
+  JobSubmitOptions,
+  GpuCandidate,
+  JobAttempt,
+  SubmittedJob,
+  JobGroup,
+  SubmittedJobGroup,
+  JobListParams,
+  JobLogChunk,
+  JobLogs,
+  JobLogsParams,
+  JobEvent,
+  JobMetricPoint,
+  JobArtifact,
+  JobUpload,
+  JobWaitOptions,
 } from "./types.js";
 
 // Errors
@@ -74,7 +99,10 @@ export {
   InternalServerError,
   ConnectionError,
   TimeoutError,
+  JobWaitTimeoutError,
 } from "./errors.js";
+
+export { isJobFinished } from "./resources/jobs.js";
 
 // Pagination
 export { PaginatedResponse } from "./pagination.js";

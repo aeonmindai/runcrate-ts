@@ -8,6 +8,7 @@ import type {
   InstanceTypeListParams,
   InstanceUpdateParams,
 } from "../types.js";
+import { newIdempotencyKey, LAUNCH_TIMEOUT } from "../transport.js";
 import { removeUndefined, toSnakeCase } from "../util.js";
 
 export class Instances {
@@ -27,12 +28,18 @@ export class Instances {
    * `idleShutdownMinutes` (5 to 1440) so the instance stops on its own. Values outside those
    * ranges are rejected with an `UnprocessableEntityError` (422). If the environment's monthly budget is
    * reached, this throws an `InsufficientCreditsError` with `code` `"BUDGET_REACHED"`.
+   *
+   * A launch is never sent twice once it may have reached Runcrate: a timeout or a lost connection
+   * throws (check `instances.list()` before launching again), and only a 429 or 503, which say
+   * nothing was launched, are retried.
    */
   async create(params: InstanceCreateParams): Promise<Instance> {
     const { data } = await this.transport.request<Instance>({
       method: "POST",
       path: "/api/v1/instances",
       body: toSnakeCase(params),
+      idempotencyKey: newIdempotencyKey(),
+      minTimeout: LAUNCH_TIMEOUT,
     });
     return data;
   }

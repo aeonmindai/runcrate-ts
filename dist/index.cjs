@@ -2,9 +2,14 @@
 
 Object.defineProperty(exports, '__esModule', { value: true });
 
+var crypto = require('crypto');
 var promises = require('fs/promises');
 var fs = require('fs');
 var path = require('path');
+var stream = require('stream');
+var promises$1 = require('stream/promises');
+
+// src/transport.ts
 
 // src/errors.ts
 var RuncrateError = class extends Error {
@@ -91,6 +96,14 @@ var TimeoutError = class extends RuncrateError {
     this.name = "TimeoutError";
   }
 };
+var JobWaitTimeoutError = class extends TimeoutError {
+  job;
+  constructor(message, job) {
+    super(message);
+    this.name = "JobWaitTimeoutError";
+    this.job = job;
+  }
+};
 var STATUS_MAP = {
   400: BadRequestError,
   401: AuthenticationError,
@@ -166,17 +179,17 @@ function toSnakeCase(obj) {
   }
   return result;
 }
-function toCamelCase(obj) {
+function toCamelCase(obj, rawKeys) {
   if (obj === null || obj === void 0) {
     return obj;
   }
   if (Array.isArray(obj)) {
-    return obj.map(toCamelCase);
+    return obj.map((item) => toCamelCase(item, rawKeys));
   }
   if (typeof obj === "object") {
     const result = {};
     for (const [key, value] of Object.entries(obj)) {
-      result[snakeToCamel(key)] = toCamelCase(value);
+      result[snakeToCamel(key)] = rawKeys?.includes(key) ? value : toCamelCase(value, rawKeys);
     }
     return result;
   }
@@ -184,12 +197,26 @@ function toCamelCase(obj) {
 }
 
 // src/transport.ts
-var RETRYABLE_STATUS_CODES = /* @__PURE__ */ new Set([429, 500, 502, 503, 504]);
+var RETRYABLE_STATUS_CODES = { 429: true, 500: true, 502: true, 503: true, 504: true };
+var NOT_ACTED_ON_STATUS_CODES = { 429: true, 503: true };
+var NOT_SENT_ERROR_CODES = {
+  ECONNREFUSED: true,
+  ENOTFOUND: true,
+  EAI_AGAIN: true,
+  EHOSTUNREACH: true,
+  ENETUNREACH: true,
+  UND_ERR_CONNECT_TIMEOUT: true
+};
+var IN_PROGRESS_MIN_DELAY = 3e3;
 var BASE_DELAY = 500;
 var MAX_DELAY = 3e4;
 var JITTER_FACTOR = 0.25;
 var MAX_RETRY_AFTER = 60;
-var NON_RETRYABLE_CODES = /* @__PURE__ */ new Set(["launch_refused"]);
+var NON_RETRYABLE_CODES = { launch_refused: true };
+var LAUNCH_TIMEOUT = 75;
+function newIdempotencyKey() {
+  return crypto.randomUUID();
+}
 function backoffDelay(attempt, retryAfter) {
   if (retryAfter !== void 0) return Math.min(Math.max(retryAfter, 0), MAX_RETRY_AFTER) * 1e3;
   const delay = Math.min(BASE_DELAY * 2 ** attempt, MAX_DELAY);
@@ -202,13 +229,16 @@ function parseRetryAfter(headers) {
   const parsed = parseFloat(value);
   return isNaN(parsed) ? void 0 : parsed;
 }
-async function errorCode(response) {
-  if (!(response.headers.get("content-type") ?? "").includes("application/json")) return null;
+async function errorInfo(response) {
+  const none = { code: null, reason: null };
+  if (!(response.headers.get("content-type") ?? "").includes("application/json")) return none;
   try {
     const json = await response.clone().json();
-    return typeof json?.error?.code === "string" ? json.error.code : null;
+    const code = json?.error?.code;
+    const reason = json?.error?.details?.reason;
+    return { code: typeof code === "string" ? code : null, reason: typeof reason === "string" ? reason : null };
   } catch {
-    return null;
+    return none;
   }
 }
 function sleep(ms) {
@@ -218,9 +248,8 @@ function buildUrl(baseUrl, path, params) {
   const url = new URL(path, baseUrl);
   if (params) {
     for (const [key, value] of Object.entries(params)) {
-      if (value !== void 0 && value !== null) {
-        url.searchParams.set(key, String(value));
-      }
+      if (value === void 0 || value === null) continue;
+      for (const item of Array.isArray(value) ? value : [value]) url.searchParams.append(key, String(item));
     }
   }
   return url.toString();
@@ -238,23 +267,80 @@ var Transport = class {
     };
   }
   async request(options) {
-    const { method, path, params, body, timeout, raw } = options;
+    const response = await this.send(options);
+    if (response.status === 204) {
+      return { data: void 0 };
+    }
+    if (options.raw) {
+      const buffer = await response.arrayBuffer();
+      if (response.status >= 400) {
+        throw makeApiError(response.status, null, `HTTP ${response.status}`);
+      }
+      return { data: buffer };
+    }
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.includes("application/json")) {
+      const text = await response.text();
+      if (response.status >= 400) {
+        throw makeApiError(response.status, null, text.slice(0, 200));
+      }
+      throw new ApiError(
+        `Expected JSON response but got ${contentType} (status ${response.status}). Check that baseUrl is correct.`,
+        response.status,
+        "invalid_response"
+      );
+    }
+    const json = await response.json();
+    if (response.status >= 400) {
+      throw makeApiError(
+        response.status,
+        json,
+        `HTTP ${response.status}`
+      );
+    }
+    const rawData = options.noUnwrap ? json : json.data ?? json;
+    const data = toCamelCase(rawData, options.rawKeys);
+    const meta = options.noUnwrap ? void 0 : toCamelCase(json.meta);
+    return { data, meta };
+  }
+  /**
+   * Where a redirecting GET (an artifact download) points, without following it: the signed URL
+   * needs no API key, and the key must not travel to another host.
+   */
+  async redirectLocation(options) {
+    const response = await this.send({ ...options, method: "GET" }, "manual");
+    const location = response.headers.get("location");
+    if (response.status >= 300 && response.status < 400 && location) {
+      return new URL(location, this.config.baseUrl).toString();
+    }
+    const json = (response.headers.get("content-type") ?? "").includes("application/json") ? await response.json().catch(() => null) : null;
+    throw makeApiError(response.status >= 400 ? response.status : 502, json, `Expected a redirect, got HTTP ${response.status}`);
+  }
+  /**
+   * Sends the request, retrying what is safe to retry (RequestOptions.idempotent), and answers
+   * the last response; throws a TimeoutError or ConnectionError when no response came.
+   */
+  async send(options, redirect = "follow") {
+    const { method, path, params, body, timeout, minTimeout, idempotencyKey } = options;
+    const idempotent = options.idempotent ?? (method.toUpperCase() !== "POST" || this.config.postsAreIdempotent === true);
     const mergedParams = this.config.environment ? { environment: this.config.environment, ...params } : params;
     const url = buildUrl(this.config.baseUrl, path, mergedParams);
+    const headers = idempotencyKey ? { ...this.headers, "Idempotency-Key": idempotencyKey } : this.headers;
+    const timeoutMs = Math.max(timeout ?? this.config.timeout, minTimeout ?? 0) * 1e3;
     let lastError;
     for (let attempt = 0; attempt <= this.config.maxRetries; attempt++) {
+      const canRetry = attempt < this.config.maxRetries;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
       let response;
       try {
-        const controller = new AbortController();
-        const timeoutMs = (timeout ?? this.config.timeout) * 1e3;
-        const timer = setTimeout(() => controller.abort(), timeoutMs);
         response = await fetch(url, {
           method,
-          headers: this.headers,
+          headers,
           body: body ? JSON.stringify(body) : void 0,
-          signal: controller.signal
+          signal: controller.signal,
+          redirect
         });
-        clearTimeout(timer);
       } catch (err) {
         if (err instanceof DOMException && err.name === "AbortError") {
           lastError = new TimeoutError(`Request timed out: ${method} ${path}`);
@@ -263,51 +349,30 @@ var Transport = class {
             `Connection failed: ${err instanceof Error ? err.message : String(err)}`
           );
         }
-        if (attempt < this.config.maxRetries) {
+        const cause = err?.cause;
+        const notSent = typeof cause?.code === "string" && NOT_SENT_ERROR_CODES[cause.code] === true;
+        if (canRetry && (idempotent || notSent)) {
           await sleep(backoffDelay(attempt));
           continue;
         }
         throw lastError;
+      } finally {
+        clearTimeout(timer);
       }
-      if (RETRYABLE_STATUS_CODES.has(response.status) && attempt < this.config.maxRetries && !NON_RETRYABLE_CODES.has(await errorCode(response) ?? "")) {
+      if (canRetry && (RETRYABLE_STATUS_CODES[response.status] || response.status === 409)) {
+        const { code, reason } = await errorInfo(response);
         const retryAfter = parseRetryAfter(response.headers);
-        await sleep(backoffDelay(attempt, retryAfter));
-        continue;
-      }
-      if (response.status === 204) {
-        return { data: void 0 };
-      }
-      if (raw) {
-        const buffer = await response.arrayBuffer();
-        if (response.status >= 400) {
-          throw makeApiError(response.status, null, `HTTP ${response.status}`);
+        if (response.status === 409) {
+          if (idempotencyKey && reason === "idempotency_in_progress") {
+            await sleep(Math.max(backoffDelay(attempt, retryAfter), IN_PROGRESS_MIN_DELAY));
+            continue;
+          }
+        } else if (!NON_RETRYABLE_CODES[code ?? ""] && (idempotent || NOT_ACTED_ON_STATUS_CODES[response.status])) {
+          await sleep(backoffDelay(attempt, retryAfter));
+          continue;
         }
-        return { data: buffer };
       }
-      const contentType = response.headers.get("content-type") ?? "";
-      if (!contentType.includes("application/json")) {
-        const text = await response.text();
-        if (response.status >= 400) {
-          throw makeApiError(response.status, null, text.slice(0, 200));
-        }
-        throw new ApiError(
-          `Expected JSON response but got ${contentType} (status ${response.status}). Check that baseUrl is correct.`,
-          response.status,
-          "invalid_response"
-        );
-      }
-      const json = await response.json();
-      if (response.status >= 400) {
-        throw makeApiError(
-          response.status,
-          json,
-          `HTTP ${response.status}`
-        );
-      }
-      const rawData = options.noUnwrap ? json : json.data ?? json;
-      const data = toCamelCase(rawData);
-      const meta = options.noUnwrap ? void 0 : toCamelCase(json.meta);
-      return { data, meta };
+      return response;
     }
     throw lastError ?? new Error("Unexpected retry exhaustion");
   }
@@ -366,12 +431,18 @@ var Instances = class {
    * `idleShutdownMinutes` (5 to 1440) so the instance stops on its own. Values outside those
    * ranges are rejected with an `UnprocessableEntityError` (422). If the environment's monthly budget is
    * reached, this throws an `InsufficientCreditsError` with `code` `"BUDGET_REACHED"`.
+   *
+   * A launch is never sent twice once it may have reached Runcrate: a timeout or a lost connection
+   * throws (check `instances.list()` before launching again), and only a 429 or 503, which say
+   * nothing was launched, are retried.
    */
   async create(params) {
     const { data } = await this.transport.request({
       method: "POST",
       path: "/api/v1/instances",
-      body: toSnakeCase(params)
+      body: toSnakeCase(params),
+      idempotencyKey: newIdempotencyKey(),
+      minTimeout: LAUNCH_TIMEOUT
     });
     return data;
   }
@@ -545,7 +616,8 @@ var Storage = class {
     const { data } = await this.transport.request({
       method: "POST",
       path: "/api/v1/storage",
-      body: toSnakeCase(params)
+      body: toSnakeCase(params),
+      idempotencyKey: newIdempotencyKey()
     });
     return data;
   }
@@ -675,6 +747,7 @@ var Schedules = class {
     const { data } = await this.transport.request({
       method: "POST",
       path: "/api/v1/schedules",
+      idempotencyKey: newIdempotencyKey(),
       body: removeUndefined({
         kind,
         spec: specBody(spec),
@@ -740,7 +813,9 @@ var Schedules = class {
   async runNow(id) {
     const { data } = await this.transport.request({
       method: "POST",
-      path: `/api/v1/schedules/${id}/run-now`
+      path: `/api/v1/schedules/${id}/run-now`,
+      // It launches a machine and is not deduplicated: never sent twice once it may have arrived.
+      minTimeout: LAUNCH_TIMEOUT
     });
     return data;
   }
@@ -970,6 +1045,297 @@ var Models = class {
     return await response.json();
   }
 };
+var PATH = "/api/v1/jobs";
+var RAW_KEYS = ["tags", "status_counts"];
+var SUBMIT_TIMEOUT = 135;
+var FOLLOW_TIMEOUT = 40;
+var GROUP_CANCEL_TIMEOUT = 315;
+var LIVE = { queued: true, starting: true, running: true };
+function isJobFinished(status) {
+  return !LIVE[status];
+}
+var jobPath = (id, suffix = "") => `${PATH}/${encodeURIComponent(id)}${suffix}`;
+function submitBody(params) {
+  const { env, tags, params: groupParams, ...rest } = params;
+  const body = toSnakeCase(rest);
+  if (env !== void 0) body.env = env;
+  if (tags !== void 0) body.tags = tags;
+  if (groupParams !== void 0) body.params = groupParams;
+  return body;
+}
+function sleep2(ms, signal) {
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve();
+    const timer = setTimeout(done, ms);
+    signal?.addEventListener("abort", done, { once: true });
+    function done() {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", done);
+      resolve();
+    }
+  });
+}
+async function fetchSigned(url) {
+  let response;
+  try {
+    response = await fetch(url);
+  } catch (err) {
+    throw new ConnectionError(`Connection failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (!response.ok || !response.body) {
+    throw new ApiError(`Downloading the file failed (HTTP ${response.status})`, response.status, "download_failed");
+  }
+  return response;
+}
+var JobArtifacts = class {
+  constructor(transport) {
+    this.transport = transport;
+  }
+  transport;
+  /** The job's outputs by path, kept 30 days after it ended. */
+  async list(jobId) {
+    const { data } = await this.transport.request({ method: "GET", path: jobPath(jobId, "/artifacts") });
+    return data;
+  }
+  /** A signed URL that downloads one output, valid for an hour. Needs no API key. */
+  async url(jobId, path) {
+    const encoded = path.split("/").map(encodeURIComponent).join("/");
+    return this.transport.redirectLocation({ path: jobPath(jobId, `/artifacts/${encoded}`) });
+  }
+  /** One output's bytes, in memory. Use `downloadTo` for large files. */
+  async download(jobId, path) {
+    const response = await fetchSigned(await this.url(jobId, path));
+    return Buffer.from(await response.arrayBuffer());
+  }
+  /** Streams one output to `destination` on disk (the file is replaced). */
+  async downloadTo(jobId, path, destination) {
+    const response = await fetchSigned(await this.url(jobId, path));
+    await promises$1.pipeline(stream.Readable.fromWeb(response.body), fs.createWriteStream(destination));
+  }
+};
+var JobUploads = class {
+  constructor(transport) {
+    this.transport = transport;
+  }
+  transport;
+  /**
+   * Somewhere to PUT a tar.gz of `bytes` (at most 1 GB). With `sha256`, the same archive again
+   * answers the same upload. Use `upload()` to do both steps.
+   */
+  async create(params) {
+    const { data } = await this.transport.request({
+      method: "POST",
+      path: `${PATH}/uploads`,
+      body: removeUndefined(params),
+      // The same hash answers the same upload, so a repeat makes no second one.
+      idempotent: params.sha256 !== void 0
+    });
+    return data;
+  }
+  /**
+   * Uploads a tar.gz (its bytes, or a path to one) and answers the upload: run a job with
+   * `code: { uploadId: upload.uploadId }` within 24 hours. The same archive again is not sent twice.
+   */
+  async upload(archive) {
+    const bytes = typeof archive === "string" ? await promises.readFile(archive) : archive;
+    const sha256 = crypto.createHash("sha256").update(bytes).digest("hex");
+    const upload = await this.create({ bytes: bytes.byteLength, sha256 });
+    if (upload.url) {
+      let response;
+      try {
+        response = await fetch(upload.url, { method: "PUT", body: bytes });
+      } catch (err) {
+        throw new ConnectionError(`Connection failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
+      if (!response.ok) {
+        throw new ApiError(`Uploading the code failed (HTTP ${response.status})`, response.status, "upload_failed");
+      }
+    }
+    return upload;
+  }
+};
+var Jobs = class {
+  constructor(transport) {
+    this.transport = transport;
+    this.artifacts = new JobArtifacts(transport);
+    this.uploads = new JobUploads(transport);
+  }
+  transport;
+  artifacts;
+  uploads;
+  /**
+   * Run one job. Answers it queued or starting; `wait()` for the end. A low balance throws an
+   * `InsufficientCreditsError`, a reached environment budget the same with `code`
+   * `"BUDGET_REACHED"`, a bad field an `UnprocessableEntityError`. For several jobs at once use
+   * `runGroup()`.
+   */
+  async run(params, options) {
+    if ("count" in params || "params" in params) {
+      throw new TypeError("jobs.run() runs one job: use jobs.runGroup() for count or params");
+    }
+    return this.submit(PATH, submitBody(params), options);
+  }
+  /**
+   * Run a group of jobs: `count` copies of one, or one per `params` entry (each merged over
+   * `env`), at most `maxParallel` at once. Answers the group with its jobs.
+   */
+  async runGroup(params, options) {
+    return this.submit(PATH, submitBody(params), options);
+  }
+  /**
+   * Run a job's spec again as a new job (its `rerunOf` set), with its env values. `overrides`
+   * changes fields; its `env` is merged over the job's. Only whoever submitted the job can reuse
+   * its env values; anyone else must send them.
+   */
+  async rerun(id, overrides, options) {
+    return this.submit(jobPath(id, "/rerun"), submitBody(overrides ?? {}), options);
+  }
+  async submit(path, body, options) {
+    const { data } = await this.transport.request({
+      method: "POST",
+      path,
+      body,
+      idempotencyKey: options?.idempotencyKey ?? newIdempotencyKey(),
+      idempotent: true,
+      minTimeout: SUBMIT_TIMEOUT,
+      rawKeys: RAW_KEYS
+    });
+    return data;
+  }
+  async get(id) {
+    const { data } = await this.transport.request({ method: "GET", path: jobPath(id), rawKeys: RAW_KEYS });
+    return data;
+  }
+  /** One page of jobs, newest first. Pass `cursor` for the next page, or use `listAll()`. */
+  async list(params = {}) {
+    const { status, tags, groupId, q, gpuType, createdAfter, limit, cursor } = params;
+    const { data, meta } = await this.transport.request({
+      method: "GET",
+      path: PATH,
+      params: {
+        status: Array.isArray(status) ? status.join(",") : status,
+        tag: tags ? Object.entries(tags).map(([key, value]) => `${key}:${value}`) : void 0,
+        group_id: groupId,
+        q,
+        gpu_type: gpuType,
+        created_after: createdAfter instanceof Date ? createdAfter.toISOString() : createdAfter,
+        limit,
+        cursor
+      },
+      rawKeys: RAW_KEYS
+    });
+    return new PaginatedResponse(data, meta);
+  }
+  /** Every job matching `params`, newest first, page by page. */
+  async *listAll(params = {}) {
+    let cursor;
+    do {
+      const page = await this.list({ ...params, cursor });
+      yield* page.data;
+      cursor = page.hasMore && page.cursor ? page.cursor : void 0;
+    } while (cursor);
+  }
+  /** Stops the job's machine; the job becomes `cancelled`. A job that ended otherwise throws a `ConflictError`. */
+  async cancel(id) {
+    const { data } = await this.transport.request({
+      method: "POST",
+      path: jobPath(id, "/cancel"),
+      // Cancelling a cancelled job answers it unchanged.
+      idempotent: true,
+      minTimeout: SUBMIT_TIMEOUT,
+      rawKeys: RAW_KEYS
+    });
+    return data;
+  }
+  /** Deletes a job that ended, with its logs and outputs. A live job throws a `ConflictError`: cancel it first. */
+  async delete(id) {
+    await this.transport.request({ method: "DELETE", path: jobPath(id) });
+  }
+  /** One page of the job's output after `after`. */
+  async logs(id, params = {}) {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: jobPath(id, "/logs"),
+      params: { after: params.after, limit: params.limit, follow: params.follow ? "true" : void 0 },
+      minTimeout: params.follow ? FOLLOW_TIMEOUT : void 0
+    });
+    return data;
+  }
+  /**
+   * The job's output as it is written, chunk by chunk, until the job ends and every chunk was
+   * read. Starts at `after` (default 0, the start). Stop early with `signal` or by breaking out.
+   */
+  async *followLogs(id, options = {}) {
+    let after = options.after ?? 0;
+    while (!options.signal?.aborted) {
+      const page = await this.logs(id, { after, follow: true });
+      yield* page.chunks;
+      after = Math.max(after, page.cursor);
+      if (page.done) return;
+      if (page.chunks.length === 0) await sleep2(1e3, options.signal);
+    }
+  }
+  /** The job's timeline, oldest first. */
+  async events(id) {
+    const { data } = await this.transport.request({ method: "GET", path: jobPath(id, "/events") });
+    return data;
+  }
+  /** GPU use while the command ran, oldest first, one point per `step` seconds (60 to 86400). */
+  async metrics(id, params = {}) {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: jobPath(id, "/metrics"),
+      params: { step: params.step }
+    });
+    return data;
+  }
+  /**
+   * Polls the job until it ends (succeeded, failed, cancelled or timed out) and answers it. The
+   * gap between polls starts at `pollInterval` and doubles up to `maxPollInterval`. Past
+   * `timeout` seconds it throws a `JobWaitTimeoutError` holding the job as last seen; the job
+   * keeps running.
+   */
+  async wait(id, options = {}) {
+    const { timeout, pollInterval = 2, maxPollInterval = 30 } = options;
+    const deadline = timeout === void 0 ? Infinity : Date.now() + timeout * 1e3;
+    let gap = pollInterval * 1e3;
+    for (; ; ) {
+      const job = await this.get(id);
+      if (isJobFinished(job.status)) return job;
+      const left = deadline - Date.now();
+      if (left <= 0) {
+        throw new JobWaitTimeoutError(`Job ${job.id} is still ${job.status} after ${timeout} s`, job);
+      }
+      await sleep2(Math.min(gap, left));
+      gap = Math.min(gap * 2, maxPollInterval * 1e3);
+    }
+  }
+};
+var JobGroups = class {
+  constructor(transport) {
+    this.transport = transport;
+  }
+  transport;
+  async get(id) {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: `/api/v1/job-groups/${encodeURIComponent(id)}`,
+      rawKeys: RAW_KEYS
+    });
+    return data;
+  }
+  /** Cancels every job of the group that has not ended. */
+  async cancel(id) {
+    const { data } = await this.transport.request({
+      method: "POST",
+      path: `/api/v1/job-groups/${encodeURIComponent(id)}/cancel`,
+      idempotent: true,
+      minTimeout: GROUP_CANCEL_TIMEOUT,
+      rawKeys: RAW_KEYS
+    });
+    return data;
+  }
+};
 
 // src/client.ts
 var DEFAULT_BASE_URL = "https://www.runcrate.ai";
@@ -1003,6 +1369,10 @@ var Runcrate = class {
   billing;
   templates;
   schedules;
+  /** Commands run on their own fresh GPU machine, with logs, retries and outputs. */
+  jobs;
+  /** Groups of jobs from `jobs.runGroup()`. */
+  jobGroups;
   models;
   // ─── OpenAI-compatible aliases ─────────────────────────────────────────────
   /** OpenAI-compatible chat namespace: `rc.chat.completions.create(...)` */
@@ -1036,7 +1406,9 @@ var Runcrate = class {
       apiKey,
       timeout,
       maxRetries,
-      customHeaders
+      customHeaders,
+      // Inference calls keep retrying on server errors and timeouts.
+      postsAreIdempotent: true
     });
     this.instances = new Instances(infraTransport);
     this.environments = new Environments(infraTransport);
@@ -1046,6 +1418,8 @@ var Runcrate = class {
     this.billing = new Billing(infraTransport);
     this.templates = new Templates(infraTransport);
     this.schedules = new Schedules(infraTransport);
+    this.jobs = new Jobs(infraTransport);
+    this.jobGroups = new JobGroups(infraTransport);
     this.models = new Models(inferenceTransport, inferenceUrl, apiKey);
     this.chat = {
       completions: {
@@ -1079,6 +1453,7 @@ exports.ConflictError = ConflictError;
 exports.ConnectionError = ConnectionError;
 exports.InsufficientCreditsError = InsufficientCreditsError;
 exports.InternalServerError = InternalServerError;
+exports.JobWaitTimeoutError = JobWaitTimeoutError;
 exports.NotFoundError = NotFoundError;
 exports.PaginatedResponse = PaginatedResponse;
 exports.PermissionDeniedError = PermissionDeniedError;
@@ -1088,5 +1463,6 @@ exports.RuncrateError = RuncrateError;
 exports.TimeoutError = TimeoutError;
 exports.UnprocessableEntityError = UnprocessableEntityError;
 exports.default = Runcrate;
+exports.isJobFinished = isJobFinished;
 //# sourceMappingURL=index.cjs.map
 //# sourceMappingURL=index.cjs.map

@@ -1,3 +1,5 @@
+import type { Job } from "./types.js";
+
 export class RuncrateError extends Error {
   constructor(message: string) {
     super(message);
@@ -103,6 +105,17 @@ export class TimeoutError extends RuncrateError {
   constructor(message: string) {
     super(message);
     this.name = "TimeoutError";
+  }
+}
+
+/** `jobs.wait()` ran out of time before the job ended. `job` is the job as last seen (still live). */
+export class JobWaitTimeoutError extends TimeoutError {
+  readonly job: Job;
+
+  constructor(message: string, job: Job) {
+    super(message);
+    this.name = "JobWaitTimeoutError";
+    this.job = job;
   }
 }
 

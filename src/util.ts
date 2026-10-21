@@ -35,19 +35,24 @@ export function toSnakeCase(
   return result;
 }
 
+/**
+ * Response keys to camelCase, recursively. The values of `rawKeys` (snake_case names, e.g. `tags`)
+ * are user data whose own keys are kept as sent.
+ */
 export function toCamelCase(
   obj: unknown,
+  rawKeys?: readonly string[],
 ): unknown {
   if (obj === null || obj === undefined) {
     return obj;
   }
   if (Array.isArray(obj)) {
-    return obj.map(toCamelCase);
+    return obj.map((item) => toCamelCase(item, rawKeys));
   }
   if (typeof obj === 'object') {
     const result: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(obj)) {
-      result[snakeToCamel(key)] = toCamelCase(value);
+      result[snakeToCamel(key)] = rawKeys?.includes(key) ? value : toCamelCase(value, rawKeys);
     }
     return result;
   }

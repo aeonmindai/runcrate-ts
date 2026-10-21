@@ -8,6 +8,7 @@ import type {
   ScheduleJobSpec,
   UpdateScheduleParams,
 } from "../types.js";
+import { newIdempotencyKey, LAUNCH_TIMEOUT } from "../transport.js";
 import { removeUndefined, toSnakeCase } from "../util.js";
 
 /** Job env names are user data, so they go out exactly as given rather than snake_cased. */
@@ -33,6 +34,7 @@ export class Schedules {
     const { data } = await this.transport.request<Schedule>({
       method: "POST",
       path: "/api/v1/schedules",
+      idempotencyKey: newIdempotencyKey(),
       body: removeUndefined({
         kind,
         spec: specBody(spec),
@@ -104,6 +106,8 @@ export class Schedules {
     const { data } = await this.transport.request<RunNowResult>({
       method: "POST",
       path: `/api/v1/schedules/${id}/run-now`,
+      // It launches a machine and is not deduplicated: never sent twice once it may have arrived.
+      minTimeout: LAUNCH_TIMEOUT,
     });
     return data;
   }

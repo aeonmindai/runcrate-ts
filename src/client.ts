@@ -21,6 +21,7 @@ import { Billing } from "./resources/billing.js";
 import { Templates } from "./resources/templates.js";
 import { Schedules } from "./resources/schedules.js";
 import { Models } from "./resources/models.js";
+import { Jobs, JobGroups } from "./resources/jobs.js";
 
 const DEFAULT_BASE_URL = "https://www.runcrate.ai";
 const DEFAULT_INFERENCE_URL = "https://api.runcrate.ai";
@@ -92,6 +93,10 @@ export class Runcrate {
   readonly billing: Billing;
   readonly templates: Templates;
   readonly schedules: Schedules;
+  /** Commands run on their own fresh GPU machine, with logs, retries and outputs. */
+  readonly jobs: Jobs;
+  /** Groups of jobs from `jobs.runGroup()`. */
+  readonly jobGroups: JobGroups;
   readonly models: Models;
 
   // ─── OpenAI-compatible aliases ─────────────────────────────────────────────
@@ -132,6 +137,8 @@ export class Runcrate {
       timeout,
       maxRetries,
       customHeaders,
+      // Inference calls keep retrying on server errors and timeouts.
+      postsAreIdempotent: true,
     });
 
     this.instances = new Instances(infraTransport);
@@ -142,6 +149,8 @@ export class Runcrate {
     this.billing = new Billing(infraTransport);
     this.templates = new Templates(infraTransport);
     this.schedules = new Schedules(infraTransport);
+    this.jobs = new Jobs(infraTransport);
+    this.jobGroups = new JobGroups(infraTransport);
     this.models = new Models(inferenceTransport, inferenceUrl, apiKey);
 
     // ─── OpenAI-compatible aliases ─────────────────────────────────────────────
