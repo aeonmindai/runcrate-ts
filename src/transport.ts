@@ -11,9 +11,16 @@ const RETRYABLE_STATUS_CODES = new Set([429, 500, 502, 503, 504]);
 const BASE_DELAY = 500;
 const MAX_DELAY = 30_000;
 const JITTER_FACTOR = 0.25;
+/** The longest a Retry-After header is honoured, in seconds: a server asking for more is capped. */
+const MAX_RETRY_AFTER = 60;
+/**
+ * Error codes that are never retried, whatever their status: the same request fails the same way.
+ * `launch_refused` (502): the machine was refused for the request itself, not for capacity.
+ */
+const NON_RETRYABLE_CODES = new Set(["launch_refused"]);
 
 function backoffDelay(attempt: number, retryAfter?: number): number {
-  if (retryAfter !== undefined) return retryAfter * 1000;
+  if (retryAfter !== undefined) return Math.min(Math.max(retryAfter, 0), MAX_RETRY_AFTER) * 1000;
   const delay = Math.min(BASE_DELAY * 2 ** attempt, MAX_DELAY);
   const jitter = delay * JITTER_FACTOR * Math.random();
   return delay + jitter;
@@ -24,6 +31,17 @@ function parseRetryAfter(headers: Headers): number | undefined {
   if (!value) return undefined;
   const parsed = parseFloat(value);
   return isNaN(parsed) ? undefined : parsed;
+}
+
+/** The API error code of a JSON error response, read from a copy (the body stays readable). */
+async function errorCode(response: Response): Promise<string | null> {
+  if (!(response.headers.get("content-type") ?? "").includes("application/json")) return null;
+  try {
+    const json = (await response.clone().json()) as { error?: { code?: unknown } };
+    return typeof json?.error?.code === "string" ? json.error.code : null;
+  } catch {
+    return null;
+  }
 }
 
 function sleep(ms: number): Promise<void> {
@@ -125,7 +143,8 @@ export class Transport {
 
       if (
         RETRYABLE_STATUS_CODES.has(response.status) &&
-        attempt < this.config.maxRetries
+        attempt < this.config.maxRetries &&
+        !NON_RETRYABLE_CODES.has((await errorCode(response)) ?? "")
       ) {
         const retryAfter = parseRetryAfter(response.headers);
         await sleep(backoffDelay(attempt, retryAfter));

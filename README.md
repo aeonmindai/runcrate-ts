@@ -294,7 +294,7 @@ const rc = new Runcrate({
   baseUrl: 'https://runcrate.ai',      // infrastructure API
   inferenceUrl: 'https://api.runcrate.ai', // model inference API
   timeout: 30,                  // seconds
-  maxRetries: 3,                // retry on 429/5xx
+  maxRetries: 3,                // retry on 429/5xx (Retry-After honoured up to 60s; never a 502 launch_refused)
   customHeaders: {},            // extra headers
 });
 ```
