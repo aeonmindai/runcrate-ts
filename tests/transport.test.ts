@@ -371,5 +371,40 @@ describe("Transport", () => {
       expect(result.data).toEqual({ ok: true });
       expect(callCount).toBe(2);
     });
+
+    it("does not retry a 502 launch_refused: the same request is refused the same way", async () => {
+      const { fakeFetch } = mockFetch([
+        { status: 502, body: { error: { code: "launch_refused", message: "The machine could not be created (request_conflict)." } } },
+        { body: { data: { id: "1" } } },
+      ]);
+      const transport = makeTransport({ maxRetries: 2 });
+
+      const error = await transport.request({ method: "POST", path: "/api/v1/jobs" }).catch((err: unknown) => err);
+      expect(error).toBeInstanceOf(ApiError);
+      expect((error as ApiError).statusCode).toBe(502);
+      expect((error as ApiError).code).toBe("launch_refused");
+      expect((error as ApiError).message).toBe("The machine could not be created (request_conflict).");
+      expect(fakeFetch).toHaveBeenCalledTimes(1);
+    });
+
+    it("waits Retry-After seconds, but never more than 60", async () => {
+      vi.useFakeTimers();
+      try {
+        const { fakeFetch } = mockFetch([
+          { status: 503, headers: { "retry-after": "3600" }, body: { error: { code: "service_unavailable", message: "No GPU" } } },
+          { body: { data: { id: "1" } } },
+        ]);
+        const transport = makeTransport({ maxRetries: 1 });
+
+        const pending = transport.request<{ id: string }>({ method: "POST", path: "/api/v1/instances" });
+        await vi.advanceTimersByTimeAsync(59_000);
+        expect(fakeFetch).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1_000);
+        expect((await pending).data).toEqual({ id: "1" });
+        expect(fakeFetch).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
   });
 });
