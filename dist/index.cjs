@@ -188,8 +188,10 @@ var RETRYABLE_STATUS_CODES = /* @__PURE__ */ new Set([429, 500, 502, 503, 504]);
 var BASE_DELAY = 500;
 var MAX_DELAY = 3e4;
 var JITTER_FACTOR = 0.25;
+var MAX_RETRY_AFTER = 60;
+var NON_RETRYABLE_CODES = /* @__PURE__ */ new Set(["launch_refused"]);
 function backoffDelay(attempt, retryAfter) {
-  if (retryAfter !== void 0) return retryAfter * 1e3;
+  if (retryAfter !== void 0) return Math.min(Math.max(retryAfter, 0), MAX_RETRY_AFTER) * 1e3;
   const delay = Math.min(BASE_DELAY * 2 ** attempt, MAX_DELAY);
   const jitter = delay * JITTER_FACTOR * Math.random();
   return delay + jitter;
@@ -199,6 +201,15 @@ function parseRetryAfter(headers) {
   if (!value) return void 0;
   const parsed = parseFloat(value);
   return isNaN(parsed) ? void 0 : parsed;
+}
+async function errorCode(response) {
+  if (!(response.headers.get("content-type") ?? "").includes("application/json")) return null;
+  try {
+    const json = await response.clone().json();
+    return typeof json?.error?.code === "string" ? json.error.code : null;
+  } catch {
+    return null;
+  }
 }
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -258,7 +269,7 @@ var Transport = class {
         }
         throw lastError;
       }
-      if (RETRYABLE_STATUS_CODES.has(response.status) && attempt < this.config.maxRetries) {
+      if (RETRYABLE_STATUS_CODES.has(response.status) && attempt < this.config.maxRetries && !NON_RETRYABLE_CODES.has(await errorCode(response) ?? "")) {
         const retryAfter = parseRetryAfter(response.headers);
         await sleep(backoffDelay(attempt, retryAfter));
         continue;
