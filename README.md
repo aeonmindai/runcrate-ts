@@ -231,6 +231,15 @@ const { monthlyBudgetUsd, monthToDateUsd, budgetRemainingUsd } = await rc.enviro
 
 A workspace owner or admin sets an environment's monthly budget in the dashboard, under Workspace settings. The API and this SDK can read it but never set it. At 100% of the budget, launches in that environment fail, running instances stop and inference calls with that environment's API keys are refused until the month ends or the budget is raised.
 
+### Secrets
+
+Secrets are environment variables every instance and job launched in an environment gets, such as `HF_TOKEN`. The SDK lists their names, never their values; a workspace owner or manager sets them in the [dashboard](https://runcrate.ai/dashboard/settings/secrets). A value passed for one launch (`envVars`) wins over the secret of the same name.
+
+```typescript
+const secrets = await rc.secrets.list(); // [{ key: 'HF_TOKEN', sensitive: false, updatedAt: '...' }]
+const hasToken = secrets.some((s) => s.key === 'HF_TOKEN');
+```
+
 ### Templates
 
 ```typescript

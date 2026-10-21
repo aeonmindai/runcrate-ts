@@ -15,6 +15,7 @@ import { Transport } from "./transport.js";
 import { Instances } from "./resources/instances.js";
 import { Environments } from "./resources/environments.js";
 import { SSHKeys } from "./resources/ssh-keys.js";
+import { Secrets } from "./resources/secrets.js";
 import { Storage } from "./resources/storage.js";
 import { Billing } from "./resources/billing.js";
 import { Templates } from "./resources/templates.js";
@@ -85,6 +86,8 @@ export class Runcrate {
   readonly instances: Instances;
   readonly environments: Environments;
   readonly sshKeys: SSHKeys;
+  /** Names of the environment's secrets; values are set in the dashboard. */
+  readonly secrets: Secrets;
   readonly storage: Storage;
   readonly billing: Billing;
   readonly templates: Templates;
@@ -134,6 +137,7 @@ export class Runcrate {
     this.instances = new Instances(infraTransport);
     this.environments = new Environments(infraTransport);
     this.sshKeys = new SSHKeys(infraTransport);
+    this.secrets = new Secrets(infraTransport);
     this.storage = new Storage(infraTransport);
     this.billing = new Billing(infraTransport);
     this.templates = new Templates(infraTransport);

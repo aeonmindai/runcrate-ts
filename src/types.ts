@@ -351,6 +351,23 @@ export interface EnvironmentUpdateParams {
   isDefault?: boolean;
 }
 
+// ─── Secrets ────────────────────────────────────────────────────────────────
+
+/**
+ * A secret set in the environment: an environment variable every instance and job launched
+ * there gets. The API returns names only; values are set in the dashboard and never shown.
+ * A value given for one launch (`envVars` on an instance, `env` on a scheduled job) wins over a secret
+ * of the same name.
+ */
+export interface Secret {
+  /** The variable's name, e.g. `HF_TOKEN`. */
+  key: string;
+  /** A sensitive secret's value is hidden in the dashboard too, for everyone. */
+  sensitive: boolean;
+  /** When the value or its settings last changed (ISO 8601). */
+  updatedAt: string;
+}
+
 // ─── SSH Keys ───────────────────────────────────────────────────────────────
 
 export interface SSHKey {

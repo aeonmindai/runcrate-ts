@@ -497,6 +497,22 @@ var SSHKeys = class {
   }
 };
 
+// src/resources/secrets.ts
+var Secrets = class {
+  constructor(transport) {
+    this.transport = transport;
+  }
+  transport;
+  /** The secrets set in the environment, sorted by name. Never their values. */
+  async list() {
+    const { data } = await this.transport.request({
+      method: "GET",
+      path: "/api/v1/secrets"
+    });
+    return data.map(({ key, sensitive, updatedAt }) => ({ key, sensitive, updatedAt }));
+  }
+};
+
 // src/resources/storage.ts
 var Storage = class {
   constructor(transport) {
@@ -981,6 +997,8 @@ var Runcrate = class {
   instances;
   environments;
   sshKeys;
+  /** Names of the environment's secrets; values are set in the dashboard. */
+  secrets;
   storage;
   billing;
   templates;
@@ -1023,6 +1041,7 @@ var Runcrate = class {
     this.instances = new Instances(infraTransport);
     this.environments = new Environments(infraTransport);
     this.sshKeys = new SSHKeys(infraTransport);
+    this.secrets = new Secrets(infraTransport);
     this.storage = new Storage(infraTransport);
     this.billing = new Billing(infraTransport);
     this.templates = new Templates(infraTransport);

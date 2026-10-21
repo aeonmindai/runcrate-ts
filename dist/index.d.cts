@@ -317,6 +317,20 @@ interface EnvironmentUpdateParams {
     name?: string;
     isDefault?: boolean;
 }
+/**
+ * A secret set in the environment: an environment variable every instance and job launched
+ * there gets. The API returns names only; values are set in the dashboard and never shown.
+ * A value given for one launch (`envVars` on an instance, `env` on a scheduled job) wins over a secret
+ * of the same name.
+ */
+interface Secret {
+    /** The variable's name, e.g. `HF_TOKEN`. */
+    key: string;
+    /** A sensitive secret's value is hidden in the dashboard too, for everyone. */
+    sensitive: boolean;
+    /** When the value or its settings last changed (ISO 8601). */
+    updatedAt: string;
+}
 interface SSHKey {
     id: string;
     name: string;
@@ -591,6 +605,18 @@ declare class SSHKeys {
     delete(id: string): Promise<void>;
 }
 
+/**
+ * The secrets of the environment the client acts in: environment variables every instance and
+ * job launched there gets at boot. Names only: values are set in the Runcrate dashboard
+ * (Settings > Secrets) and never returned.
+ */
+declare class Secrets {
+    private readonly transport;
+    constructor(transport: Transport);
+    /** The secrets set in the environment, sorted by name. Never their values. */
+    list(): Promise<Secret[]>;
+}
+
 declare class Storage {
     private readonly transport;
     constructor(transport: Transport);
@@ -711,6 +737,8 @@ declare class Runcrate {
     readonly instances: Instances;
     readonly environments: Environments;
     readonly sshKeys: SSHKeys;
+    /** Names of the environment's secrets; values are set in the dashboard. */
+    readonly secrets: Secrets;
     readonly storage: Storage;
     readonly billing: Billing;
     readonly templates: Templates;
@@ -775,4 +803,4 @@ declare class TimeoutError extends RuncrateError {
     constructor(message: string);
 }
 
-export { ApiError, AuthenticationError, BadRequestError, type Balance, type ChatChoice, type ChatCompletion, type ChatCompletionParams, type ChatMessage, type ChatUsage, ConflictError, ConnectionError, type CreateScheduleParams, type Environment, type EnvironmentCreateParams, type EnvironmentUpdateParams, type ImageData, type ImageGeneration, type ImageGenerationParams, type Instance, type InstanceCreateParams, type InstanceListParams, type InstanceStatus, type InstanceStopReason, type InstanceType, type InstanceTypeListParams, type InstanceUpdateParams, InsufficientCreditsError, InternalServerError, type ListMeta, NotFoundError, PaginatedResponse, PermissionDeniedError, RateLimitError, type RunNowResult, Runcrate, type RuncrateConfig, RuncrateError, type SSHKey, type SSHKeyCreateParams, type Schedule, type ScheduleDeleteResult, type ScheduleInstanceSpec, type ScheduleJobSpec, type ScheduleKind, type ScheduleOverlap, type ScheduleRunAsCredential, type ScheduleRunStatus, type ScheduleSpec, type ScheduleTiming, type ScheduledInstanceSpec, type ScheduledJob, type ScheduledJobSpec, type StorageListParams, type StorageVolume, type TTSParams, type Template, type TemplateListParams, TimeoutError, type Transaction, type TransactionListParams, type TranscribeParams, type Transcription, UnprocessableEntityError, type UpdateScheduleParams, type UsageParams, type UsageSummary, type VideoGenerationParams, type VideoJob, type VideoSaveParams, Runcrate as default };
+export { ApiError, AuthenticationError, BadRequestError, type Balance, type ChatChoice, type ChatCompletion, type ChatCompletionParams, type ChatMessage, type ChatUsage, ConflictError, ConnectionError, type CreateScheduleParams, type Environment, type EnvironmentCreateParams, type EnvironmentUpdateParams, type ImageData, type ImageGeneration, type ImageGenerationParams, type Instance, type InstanceCreateParams, type InstanceListParams, type InstanceStatus, type InstanceStopReason, type InstanceType, type InstanceTypeListParams, type InstanceUpdateParams, InsufficientCreditsError, InternalServerError, type ListMeta, NotFoundError, PaginatedResponse, PermissionDeniedError, RateLimitError, type RunNowResult, Runcrate, type RuncrateConfig, RuncrateError, type SSHKey, type SSHKeyCreateParams, type Schedule, type ScheduleDeleteResult, type ScheduleInstanceSpec, type ScheduleJobSpec, type ScheduleKind, type ScheduleOverlap, type ScheduleRunAsCredential, type ScheduleRunStatus, type ScheduleSpec, type ScheduleTiming, type ScheduledInstanceSpec, type ScheduledJob, type ScheduledJobSpec, type Secret, type StorageListParams, type StorageVolume, type TTSParams, type Template, type TemplateListParams, TimeoutError, type Transaction, type TransactionListParams, type TranscribeParams, type Transcription, UnprocessableEntityError, type UpdateScheduleParams, type UsageParams, type UsageSummary, type VideoGenerationParams, type VideoJob, type VideoSaveParams, Runcrate as default };
