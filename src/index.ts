@@ -33,6 +33,7 @@ export type {
   RunNowResult,
   SSHKey,
   SSHKeyCreateParams,
+  Secret,
   StorageVolume,
   StorageListParams,
   Balance,
